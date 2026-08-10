@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # CodeGuard 默认配置文件
 # 所有字段均有默认值，缺失字段自动回退
 
@@ -30,3 +31,17 @@ protected_files = [
     "*.key",
     ".git",
 ]
+=======
+[agent]
+workspace = "./demo_project"
+max_steps = 10
+command_timeout = 30
+max_file_size = 100000
+allowed_commands = ["python", "pytest", "ruff", "mypy", "git diff", "git status"]
+protected_files = [".env", ".git", "*.pem", "*.key"]
+allowed_extensions = [".py", ".json", ".toml", ".md", ".txt"]
+auto_finish_on_test_pass = false
+log_level = "info"
+high_size_threshold = 10240
+forbidden_shell_chars = [";", "|", "&", ">", "<", "`", "$("]
+>>>>>>> start-test
