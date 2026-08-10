@@ -1,4 +1,4 @@
-"""TDD Task 6: Config 配置加载模块测试。"""
+"""TDD Task 6: Config 配置加载模块测试 — 默认值与自定义 TOML 加载。"""
 
 import pytest
 

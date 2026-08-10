@@ -1,0 +1,4 @@
+keyring
+tomli
+openai
+pytest
