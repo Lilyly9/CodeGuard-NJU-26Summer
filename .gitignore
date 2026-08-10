@@ -232,3 +232,8 @@ codeguard_memory.json
 
 # CodeGuard — demo workspace
 demo_project/
+
+# CodeGuard — sensitive files (private keys, certificates)
+*.pem
+*.key
+keyring.cfg
