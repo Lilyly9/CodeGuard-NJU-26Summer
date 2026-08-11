@@ -4,9 +4,12 @@ run(task, workspace, max_steps=10) 驱动完整的"感知-决策-执行-反馈"�
 """
 
 import json
+import os
 from datetime import datetime
+from pathlib import Path
 
 from src.memory import Memory
+from src.models import RiskLevel
 
 
 def run(task, workspace, max_steps=10, *,
@@ -27,100 +30,146 @@ def run(task, workspace, max_steps=10, *,
     if tools_module is None:
         import src.tools as tools_module
 
+    ws_path = Path(workspace)
+    if not ws_path.exists():
+        raise ValueError(f"Workspace does not exist: {workspace}")
+    if not os.access(str(ws_path), os.R_OK):
+        raise PermissionError(f"Workspace not readable: {workspace}")
+
     memory = Memory(task=task)
     context = _build_context(task, memory)
     step = 0
     audit_log = []
     finished = False
+    consecutive_failures = 0
+    last_action_type = None
+    action_repeat_count = 0
+    stop_reason = ""
 
-    while step < max_steps:
-        step += 1
+    try:
+        while step < max_steps:
+            step += 1
 
-        raw = llm_client.get_response(context)
+            try:
+                raw = llm_client.get_response(context)
+            except KeyboardInterrupt:
+                stop_reason = "用户手动中断"
+                break
 
-        parsed = parse_fn(raw)
-        if "error" in parsed:
-            context.append({"role": "user", "content": f"Parse error: {parsed['error']}. Please respond with valid JSON."})
-            audit_log.append({
-                "step": step,
-                "timestamp": datetime.now(),
-                "action": {},
-                "risk_level": "",
-                "final_decision": "PARSE_ERROR",
-            })
-            memory.add_history({}, {"success": False, "error": parsed["error"]})
-            continue
+            parsed = parse_fn(raw)
+            if parsed.error:
+                consecutive_failures += 1
+                if consecutive_failures >= 3:
+                    stop_reason = "连续 3 次解析失败"
+                    step -= 1
+                    break
+                context.append({"role": "user", "content": f"Parse error: {parsed.error}. Please respond with valid JSON."})
+                audit_log.append({
+                    "step": step,
+                    "timestamp": datetime.now(),
+                    "action": {},
+                    "risk_level": "",
+                    "final_decision": "PARSE_ERROR",
+                })
+                memory.add_history({}, {"success": False, "error": parsed.error})
+                last_action_type = None
+                action_repeat_count = 0
+                continue
 
-        action = parsed
+            consecutive_failures = 0
+            action = parsed.action
 
-        if action.get("action") == "finish":
-            audit_log.append({
-                "step": step,
-                "timestamp": datetime.now(),
-                "action": action,
-                "risk_level": "",
-                "final_decision": "FINISHED",
-            })
-            memory.add_history(action, {"success": True, "meta": {"finished": True}})
-            finished = True
-            break
+            if action.type == "finish":
+                audit_log.append({
+                    "step": step,
+                    "timestamp": datetime.now(),
+                    "action": {"type": action.type, "params": action.params},
+                    "risk_level": "",
+                    "final_decision": "FINISHED",
+                })
+                memory.add_history({"type": action.type, "params": action.params}, {"success": True, "meta": {"finished": True}})
+                finished = True
+                break
 
-        risk_level = evaluate_fn(action, workspace)
+            if action.type == last_action_type:
+                action_repeat_count += 1
+                if action_repeat_count >= 3:
+                    stop_reason = "连续 3 次相同无效动作"
+                    break
+            else:
+                last_action_type = action.type
+                action_repeat_count = 1
 
-        if risk_level == "forbidden":
-            context.append({
-                "role": "user",
-                "content": f"Action '{action.get('action')}' is forbidden by security policy. Please try a different approach.",
-            })
-            audit_log.append({
-                "step": step,
-                "timestamp": datetime.now(),
-                "action": action,
-                "risk_level": risk_level,
-                "final_decision": "BLOCKED",
-            })
-            memory.add_history(action, {"success": False, "error": "Action forbidden", "meta": {"blocked": True}})
-            continue
+            risk = evaluate_fn({"action": action.type, **action.params}, workspace)
 
-        if risk_level == "high":
-            approved = _call_approval(approval_fn, action, workspace)
-            if not approved:
+            if risk.level == RiskLevel.FORBIDDEN:
                 context.append({
                     "role": "user",
-                    "content": "User rejected the action. Please try a different approach.",
+                    "content": f"Action '{action.type}' is forbidden by security policy. Please try a different approach.",
                 })
                 audit_log.append({
                     "step": step,
                     "timestamp": datetime.now(),
-                    "action": action,
-                    "risk_level": risk_level,
-                    "final_decision": "REJECTED",
+                    "action": {"type": action.type, "params": action.params},
+                    "risk_level": risk.level.value,
+                    "final_decision": "BLOCKED",
                 })
-                memory.add_history(action, {"success": False, "error": "User rejected", "meta": {"blocked": True}})
+                memory.add_history({"type": action.type, "params": action.params}, {"success": False, "error": "Action forbidden", "meta": {"blocked": True}})
                 continue
 
-        tool_result = _execute_tool(action, workspace, tools_module)
-        feedback = _build_feedback(tool_result)
-        context.append({"role": "user", "content": feedback})
+            if risk.level == RiskLevel.HIGH:
+                approval_result = _call_approval(approval_fn, {"action": action.type, **action.params}, workspace)
+                if isinstance(approval_result, bool):
+                    approved = approval_result
+                else:
+                    approved = approval_result.approved
+                if not approved:
+                    context.append({
+                        "role": "user",
+                        "content": "User rejected the action. Please try a different approach.",
+                    })
+                    audit_log.append({
+                        "step": step,
+                        "timestamp": datetime.now(),
+                        "action": {"type": action.type, "params": action.params},
+                        "risk_level": risk.level.value,
+                        "final_decision": "REJECTED",
+                    })
+                    memory.add_history({"type": action.type, "params": action.params}, {"success": False, "error": "User rejected", "meta": {"blocked": True}})
+                    continue
 
-        audit_log.append({
-            "step": step,
-            "timestamp": datetime.now(),
-            "action": action,
-            "risk_level": risk_level,
-            "tool_result": tool_result,
-            "final_decision": "EXECUTED",
-        })
-        memory.add_history(action, tool_result)
-        if action.get("action") == "run_tests":
-            memory.last_test_result = tool_result
+            tool_result = _execute_tool({"action": action.type, **action.params}, workspace, tools_module)
+            feedback = _build_feedback(tool_result)
+            context.append({"role": "user", "content": feedback})
 
-    finish_reason = "finish_action" if finished else "max_steps"
+            audit_log.append({
+                "step": step,
+                "timestamp": datetime.now(),
+                "action": {"type": action.type, "params": action.params},
+                "risk_level": risk.level.value,
+                "tool_result": tool_result,
+                "final_decision": "EXECUTED",
+            })
+            memory.add_history({"type": action.type, "params": action.params}, tool_result)
+            if action.type == "run_tests":
+                memory.last_test_result = tool_result
+
+    except Exception as e:
+        stop_reason = f"Unrecoverable error: {e}"
+
+    if stop_reason:
+        finish_reason = "parse_failure" if "解析失败" in stop_reason else \
+                        "repeated_action" if "相同无效动作" in stop_reason else \
+                        "keyboard_interrupt" if "用户手动中断" in stop_reason else \
+                        "error"
+    else:
+        finish_reason = "finish_action" if finished else "max_steps"
 
     return {
         "success": True,
         "steps": step,
         "finish_reason": finish_reason,
+        "stop_reason": stop_reason,
         "audit_log": _serialize_audit_log(audit_log),
     }
 

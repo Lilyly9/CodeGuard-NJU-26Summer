@@ -274,3 +274,107 @@ class TestRunCommand:
         result = run_command("git status", str(ws))
         assert result["success"] is False
         assert "not allowed" not in result["error"].lower()
+
+
+class TestPathTraversalCommonpath:
+    def test_name_sibling_workspace_blocked(self, tmp_path):
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        sibling = tmp_path / "workspace-extra"
+        sibling.mkdir()
+        (sibling / "secret.txt").write_text("secret")
+
+        result = read_file(str(sibling / "secret.txt"), str(ws))
+        assert result["success"] is False
+        assert "outside workspace" in result["error"].lower()
+
+    def test_name_sibling_workspace_write_blocked(self, tmp_path):
+        ws = tmp_path / "workspace"
+        ws.mkdir()
+        sibling = tmp_path / "workspace-extra"
+        sibling.mkdir()
+
+        result = write_file(
+            str(sibling / "evil.py"), "malicious", str(ws)
+        )
+        assert result["success"] is False
+        assert "outside workspace" in result["error"].lower()
+
+
+class TestSensitiveDirBlocking:
+    def test_pycache_path_blocked_in_read(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "__pycache__").mkdir()
+        (ws / "__pycache__" / "x.py").write_text("x")
+
+        result = read_file(str(ws / "__pycache__" / "x.py"), str(ws))
+        assert result["success"] is False
+        assert "sensitive" in result["error"].lower()
+
+    def test_pycache_path_blocked_in_write(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "__pycache__").mkdir()
+
+        result = write_file(
+            str(ws / "__pycache__" / "x.py"), "x", str(ws)
+        )
+        assert result["success"] is False
+        assert "sensitive" in result["error"].lower()
+
+    def test_git_dir_blocked_in_read(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / ".git" / "config").write_text("x")
+
+        result = read_file(str(ws / ".git" / "config"), str(ws))
+        assert result["success"] is False
+        assert "sensitive" in result["error"].lower()
+
+    def test_venv_dir_blocked_in_read(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "venv").mkdir()
+        (ws / "venv" / "pyvenv.cfg").write_text("x")
+
+        result = read_file(str(ws / "venv" / "pyvenv.cfg"), str(ws))
+        assert result["success"] is False
+        assert "sensitive" in result["error"].lower()
+
+    def test_node_modules_dir_blocked(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "node_modules").mkdir()
+        (ws / "node_modules" / "package.json").write_text("{}")
+
+        result = read_file(
+            str(ws / "node_modules" / "package.json"), str(ws)
+        )
+        assert result["success"] is False
+        assert "sensitive" in result["error"].lower()
+
+
+class TestConfigBasedCommandWhitelist:
+    def test_command_blocked_by_config(self, tmp_path):
+        from src.config import Config
+
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        config = Config(allowed_commands=["ls"])
+
+        result = run_command("pytest", str(ws), config=config)
+        assert result["success"] is False
+        assert "not allowed" in result["error"].lower()
+
+    def test_command_allowed_by_config(self, tmp_path):
+        from src.config import Config
+
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        config = Config(allowed_commands=["ls"])
+
+        result = run_command("ls", str(ws), config=config)
+        assert result["success"] is False
+        assert "not found" in result["error"].lower()

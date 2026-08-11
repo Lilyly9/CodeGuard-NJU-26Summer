@@ -5,6 +5,16 @@ import json
 import pytest
 
 from src.agent import run
+from src.models import Action, ApprovalResult, ParseResult, RiskDecision, RiskLevel
+
+
+def _make_risk(level):
+    return RiskDecision(
+        level=RiskLevel(level.upper()) if isinstance(level, str) else level,
+        rule="mock",
+        needs_approval=level.upper() == "HIGH",
+        is_forbidden=level.upper() == "FORBIDDEN",
+    )
 
 
 class MockLLM:
@@ -29,41 +39,45 @@ class MockApproval:
 
     def request_approval(self, action, workspace, get_input=None, timeout=60):
         if self.call_count >= len(self.responses):
-            return False
+            return ApprovalResult(approved=False, reason="exhausted")
         resp = self.responses[self.call_count]
         self.call_count += 1
-        return resp
+        return ApprovalResult(approved=resp, reason="APPROVED" if resp else "REJECTED")
 
 
 def mock_parse_success(raw):
     data = json.loads(raw)
-    return data
+    action_type = data.pop("action", "")
+    action = Action(type=action_type, params=data)
+    return ParseResult(action=action, error=None)
 
 
 def mock_parse_error(raw):
     try:
         data = json.loads(raw)
         if isinstance(data, dict) and "action" in data:
-            return data
+            action_type = data.pop("action", "")
+            action = Action(type=action_type, params=data)
+            return ParseResult(action=action, error=None)
     except (json.JSONDecodeError, ValueError, TypeError):
         pass
-    return {"error": "Invalid JSON", "raw": raw}
+    return ParseResult(action=None, error="Invalid JSON")
 
 
 def mock_evaluate_low(action, workspace):
-    return "low"
+    return _make_risk("low")
 
 
 def mock_evaluate_forbidden(action, workspace):
-    return "forbidden"
+    return _make_risk("forbidden")
 
 
 def mock_evaluate_high(action, workspace):
-    return "high"
+    return _make_risk("high")
 
 
 def mock_evaluate_medium(action, workspace):
-    return "medium"
+    return _make_risk("medium")
 
 
 class MockTools:
@@ -86,7 +100,7 @@ class MockTools:
         self.calls.append(("run_tests", command))
         return {"success": True, "data": "1 passed", "error": None, "meta": {"exit_code": 0}}
 
-    def run_command(self, command, workspace):
+    def run_command(self, command, workspace, config=None):
         self.calls.append(("run_command", command))
         return {"success": True, "data": "OK", "error": None, "meta": {"exit_code": 0}}
 
@@ -329,7 +343,14 @@ class TestHighRiskApproval:
 
 class TestMaxSteps:
     def test_max_steps_limit(self, tmp_path):
-        llm = MockLLM([json.dumps({"action": "read_file", "path": "x.py"})] * 20)
+        actions = [
+            json.dumps({"action": "read_file", "path": "a.py"}),
+            json.dumps({"action": "list_files", "path": "b.py"}),
+            json.dumps({"action": "read_file", "path": "c.py"}),
+            json.dumps({"action": "list_files", "path": "d.py"}),
+            json.dumps({"action": "read_file", "path": "e.py"}),
+        ] * 5
+        llm = MockLLM(actions)
         tools = MockTools()
 
         result = run(
@@ -348,7 +369,12 @@ class TestMaxSteps:
         assert len(tools.calls) == 3
 
     def test_max_steps_default(self, tmp_path):
-        llm = MockLLM([json.dumps({"action": "read_file", "path": "x.py"})] * 15)
+        actions = [
+            json.dumps({"action": "read_file", "path": f"{i}.py"}) if i % 2 == 0
+            else json.dumps({"action": "list_files", "path": f"{i}.py"})
+            for i in range(20)
+        ]
+        llm = MockLLM(actions)
         tools = MockTools()
 
         result = run(
@@ -459,7 +485,7 @@ class TestToolExecutionFeedback:
             def run_tests(self, workspace, command="pytest", timeout=30):
                 return {"success": True, "data": "", "error": None, "meta": {}}
 
-            def run_command(self, command, workspace):
+            def run_command(self, command, workspace, config=None):
                 return {"success": True, "data": "", "error": None, "meta": {}}
 
         llm = MockLLM([
@@ -498,8 +524,8 @@ class TestAuditLog:
 
         def evaluate_fn(action, workspace):
             if action.get("action") == "read_file":
-                return "low"
-            return "medium"
+                return _make_risk("low")
+            return _make_risk("medium")
 
         result = run(
             "Fix bug",
@@ -513,9 +539,9 @@ class TestAuditLog:
 
         assert "audit_log" in result
         assert len(result["audit_log"]) == 3
-        assert result["audit_log"][0]["action"]["action"] == "read_file"
-        assert result["audit_log"][1]["action"]["action"] == "write_file"
-        assert result["audit_log"][2]["action"]["action"] == "finish"
+        assert result["audit_log"][0]["action"]["type"] == "read_file"
+        assert result["audit_log"][1]["action"]["type"] == "write_file"
+        assert result["audit_log"][2]["action"]["type"] == "finish"
 
     def test_audit_log_records_forbidden(self, tmp_path):
         llm = MockLLM([
@@ -585,12 +611,12 @@ class TestIntegration:
         def evaluate_fn(action, workspace):
             action_type = action.get("action", "")
             if action_type == "read_file":
-                return "low"
+                return _make_risk("low")
             if action_type == "write_file":
-                return "medium"
+                return _make_risk("medium")
             if action_type == "run_tests":
-                return "medium"
-            return "low"
+                return _make_risk("medium")
+            return _make_risk("low")
 
         result = run(
             "Fix calculator.py: add function should return a+b",
@@ -621,8 +647,8 @@ class TestIntegration:
 
         def evaluate_fn(action, workspace):
             if action.get("action") == "write_file":
-                return "high"
-            return "low"
+                return _make_risk("high")
+            return _make_risk("low")
 
         result = run(
             "Update main.py",
@@ -637,3 +663,86 @@ class TestIntegration:
         assert result["success"] is True
         assert approval.call_count == 1
         assert len(tools.calls) == 2
+
+
+class TestStopConditionParseFailure:
+    def test_consecutive_3_parse_failures_stops(self, tmp_path):
+        llm = MockLLM([
+            "not json",
+            "still not json",
+            "also not json",
+            json.dumps({"action": "finish", "summary": "should not reach"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "Fix bug",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_error,
+            evaluate_fn=mock_evaluate_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "parse_failure"
+        assert "解析失败" in result.get("stop_reason", "")
+        assert result["steps"] == 2
+
+
+class TestStopConditionRepeatedAction:
+    def test_consecutive_3_same_actions_stops(self, tmp_path):
+        llm = MockLLM([
+            json.dumps({"action": "read_file", "path": "x.py"}),
+            json.dumps({"action": "read_file", "path": "x.py"}),
+            json.dumps({"action": "read_file", "path": "x.py"}),
+            json.dumps({"action": "finish", "summary": "done"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "Fix bug",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            evaluate_fn=mock_evaluate_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "repeated_action"
+        assert "相同无效动作" in result.get("stop_reason", "")
+
+
+class TestStopConditionKeyboardInterrupt:
+    def test_keyboard_interrupt_stops(self, tmp_path):
+        class InterruptLLM:
+            def __init__(self):
+                self.call_count = 0
+                self.contexts = []
+
+            def get_response(self, context):
+                self.contexts.append(context)
+                self.call_count += 1
+                if self.call_count == 1:
+                    return json.dumps({"action": "read_file", "path": "x.py"})
+                raise KeyboardInterrupt()
+
+        llm = InterruptLLM()
+        tools = MockTools()
+
+        result = run(
+            "Fix bug",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            evaluate_fn=mock_evaluate_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "keyboard_interrupt"
+        assert "用户手动中断" in result.get("stop_reason", "")

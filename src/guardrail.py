@@ -1,10 +1,12 @@
-"""风险分级护栏 — 代码判断，非提示词。
+"""风险分级护栏 — 代码判断，非提示词。返回 RiskDecision 对象。
 
-evaluate(action, workspace) 返回: "low", "medium", "high", "forbidden"
+evaluate(action, workspace) 返回 RiskDecision(level, rule, needs_approval, is_forbidden)
 """
 
 import os
 import re
+
+from src.models import RiskDecision, RiskLevel
 
 
 def evaluate(action, workspace):
@@ -14,64 +16,141 @@ def evaluate(action, workspace):
 
     cmd_normalized = re.sub(r"\s+", " ", command)
 
-    # ── forbidden ──────────────────────────────────────────────────────────
-
     if any(conn in cmd_normalized for conn in ("&&", "||", "|", ";")):
-        return "forbidden"
+        return RiskDecision(
+            level=RiskLevel.FORBIDDEN,
+            rule="Shell connector detected in command",
+            needs_approval=False,
+            is_forbidden=True,
+        )
 
     if re.search(r"\brm\s+-rf\s+/(?:\s|$)", cmd_normalized):
-        return "forbidden"
+        return RiskDecision(
+            level=RiskLevel.FORBIDDEN,
+            rule="rm -rf / is forbidden",
+            needs_approval=False,
+            is_forbidden=True,
+        )
 
     if re.search(r"\bshutdown\b", cmd_normalized):
-        return "forbidden"
+        return RiskDecision(
+            level=RiskLevel.FORBIDDEN,
+            rule="shutdown command is forbidden",
+            needs_approval=False,
+            is_forbidden=True,
+        )
 
     if re.search(r"\bformat\b", cmd_normalized):
-        return "forbidden"
+        return RiskDecision(
+            level=RiskLevel.FORBIDDEN,
+            rule="format command is forbidden",
+            needs_approval=False,
+            is_forbidden=True,
+        )
 
     if ".." in path:
-        return "forbidden"
+        return RiskDecision(
+            level=RiskLevel.FORBIDDEN,
+            rule="Path traversal detected",
+            needs_approval=False,
+            is_forbidden=True,
+        )
 
     if path:
         basename = os.path.basename(path)
         if basename == ".env":
-            return "forbidden"
+            return RiskDecision(
+                level=RiskLevel.FORBIDDEN,
+                rule="Cannot access .env file",
+                needs_approval=False,
+                is_forbidden=True,
+            )
         if basename.endswith(".pem"):
-            return "forbidden"
+            return RiskDecision(
+                level=RiskLevel.FORBIDDEN,
+                rule="Cannot access .pem file",
+                needs_approval=False,
+                is_forbidden=True,
+            )
         if basename.endswith(".key"):
-            return "forbidden"
-
-    # ── high ───────────────────────────────────────────────────────────────
+            return RiskDecision(
+                level=RiskLevel.FORBIDDEN,
+                rule="Cannot access .key file",
+                needs_approval=False,
+                is_forbidden=True,
+            )
 
     if re.search(r"\brm\b", cmd_normalized):
-        return "high"
+        return RiskDecision(
+            level=RiskLevel.HIGH,
+            rule="rm command requires approval",
+            needs_approval=True,
+            is_forbidden=False,
+        )
 
     if "git commit" in cmd_normalized:
-        return "high"
+        return RiskDecision(
+            level=RiskLevel.HIGH,
+            rule="git commit requires approval",
+            needs_approval=True,
+            is_forbidden=False,
+        )
 
     if action_type in ("write_file", "edit_file") and path:
         if _is_outside_workspace(path, workspace):
-            return "high"
-
-    # ── medium ─────────────────────────────────────────────────────────────
+            return RiskDecision(
+                level=RiskLevel.HIGH,
+                rule="Write outside workspace requires approval",
+                needs_approval=True,
+                is_forbidden=False,
+            )
 
     if "pytest" in cmd_normalized:
-        return "medium"
+        return RiskDecision(
+            level=RiskLevel.MEDIUM,
+            rule="Test execution",
+            needs_approval=False,
+            is_forbidden=False,
+        )
 
     if action_type in ("write_file", "edit_file") and path.endswith(".py"):
-        return "medium"
-
-    # ── low ────────────────────────────────────────────────────────────────
+        return RiskDecision(
+            level=RiskLevel.MEDIUM,
+            rule="Python file write",
+            needs_approval=False,
+            is_forbidden=False,
+        )
 
     if action_type == "read_file":
-        return "low"
+        return RiskDecision(
+            level=RiskLevel.LOW,
+            rule="Read-only operation",
+            needs_approval=False,
+            is_forbidden=False,
+        )
 
     if action_type in ("list_files", "list_directory"):
-        return "low"
+        return RiskDecision(
+            level=RiskLevel.LOW,
+            rule="Read-only operation",
+            needs_approval=False,
+            is_forbidden=False,
+        )
 
     if "git status" in cmd_normalized or "git diff" in cmd_normalized:
-        return "low"
+        return RiskDecision(
+            level=RiskLevel.LOW,
+            rule="Read-only operation",
+            needs_approval=False,
+            is_forbidden=False,
+        )
 
-    return "low"
+    return RiskDecision(
+        level=RiskLevel.LOW,
+        rule="Default low risk",
+        needs_approval=False,
+        is_forbidden=False,
+    )
 
 
 def _is_outside_workspace(path, workspace):

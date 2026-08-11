@@ -8,10 +8,10 @@ import os
 import subprocess
 from pathlib import Path
 
-_ALLOWED_COMMANDS = {"pytest", "python", "ruff", "git diff", "git status"}
 _MAX_READ_SIZE = 10000
 _BLOCKED_DIRS = {".git", "__pycache__"}
 _BLOCKED_FILES = {".env"}
+_SENSITIVE_DIRS = {"__pycache__", ".git", "venv", "node_modules"}
 _DEFAULT_TIMEOUT = 30
 
 
@@ -19,9 +19,15 @@ def _is_inside_workspace(path_str: str, workspace: str) -> bool:
     try:
         resolved = Path(path_str).resolve()
         ws_resolved = Path(workspace).resolve()
-        return str(resolved).startswith(str(ws_resolved))
+        common = os.path.commonpath([str(resolved), str(ws_resolved)])
+        return os.path.normpath(common) == os.path.normpath(str(ws_resolved))
     except (ValueError, OSError):
         return False
+
+
+def _has_sensitive_dir(path_str: str) -> bool:
+    parts = Path(path_str).parts
+    return any(part in _SENSITIVE_DIRS for part in parts)
 
 
 def _is_binary(file_path: Path) -> bool:
@@ -73,6 +79,9 @@ def read_file(path: str, workspace: str) -> dict:
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
 
+    if _has_sensitive_dir(path):
+        return _make_error("Cannot access sensitive directory")
+
     p = Path(path)
     if p.name in _BLOCKED_FILES:
         return _make_error("Cannot read .env file")
@@ -102,6 +111,9 @@ def read_file(path: str, workspace: str) -> dict:
 def write_file(path: str, content: str, workspace: str) -> dict:
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
+
+    if _has_sensitive_dir(path):
+        return _make_error("Cannot access sensitive directory")
 
     p = Path(path)
     if p.name in _BLOCKED_FILES:
@@ -156,11 +168,15 @@ def run_tests(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_T
         return _make_error("pytest not found")
 
 
-def run_command(command: str, workspace: str) -> dict:
+def run_command(command: str, workspace: str, config=None) -> dict:
+    if config is None:
+        from src.config import Config
+        config = Config()
+
     cmd_name = command.split()[0]
     allowed = any(
         command.startswith(allowed_cmd)
-        for allowed_cmd in _ALLOWED_COMMANDS
+        for allowed_cmd in config.allowed_commands
     )
     if not allowed:
         return _make_error(f"Command '{command}' not allowed")
