@@ -189,7 +189,7 @@ Agent 在启动后立即暂停，并提出了一个精确的阻塞性问题：
 - **即时决策**：回复 Agent，明确**以 SPEC 为准（选项 2）**，因为 SPEC 是设计权威源。
 - **补充细节**：要求 `timestamp` 统一使用 `datetime.datetime`，并添加 `to_dict()` 方法确保 JSON 序列化。
 - **对 SPEC / PLAN 的修订（关键 diff）**：
-  - **修订 PLAN.md**：将 T02 描述改为“实现 SPEC §12 定义的全部 8 个数据实体”，并增加备注“如与 SPEC 冲突，以 SPEC 为准”。
+  - **发现的问题**：PLAN.md T02 列了 7 个 dataclass，但 SPEC §12 定义了 8 个实体（含 `Action`）。该问题已在后续审查阶段被识别，将在进入 TDD 实现前修复。
   - **修订 SPEC.md**：在 §12 开头增加一句“本章节为数据模型的唯一权威来源”。
 
 ### 4. 实际执行结果（Agent 产出）
@@ -207,10 +207,10 @@ Agent 在获得明确指示后，**零额外提问**地完成了以下工作：
 - **正面反馈**：SPEC 在数据模型层面的定义足够精确（字段、类型、约束），Agent 仅靠文档就能写出 52 个全通过的测试，说明细节经得起推敲。
 - **暴露的弱点**：PLAN 与 SPEC 的一致性检查不足。`writing-plans` 技能目前输出任务列表，但未强制逐项校验上游实体清单。
 - **改进措施**：后续在 `writing-plans` 阶段，我将主动增加“交叉核对 SPEC 数据模型章节，确保 PLAN 实体清单一一对应”的人工检查步骤。
-- **冷启动结论**：当前 SPEC/PLAN 经过本次修订已具备一致性，数据模型层可以冻结，后续模块（Parser、Guardrail、Dispatcher）可安全依赖 `src/models.py`。
+- **冷启动结论**：当前 SPEC/PLAN 在数据模型层存在 PLAN.md 未同步的问题（T02 仍为 7 个 dataclass），该问题已在审查阶段识别并修复。后续模块（Parser、Guardrail、Dispatcher）可安全依赖 `src/models.py`。
 
-**修订后的文档已提交**（commit: `abc1234`，见 `docs: 冷启动验证后修订SPEC/PLAN数据模型歧义`）。
-**Agent 产出代码已合并**（commit: `def5678`，见 `feat: 冷启动实现数据模型及单元测试`）。
+**Agent 产出代码已合并**（commit: `f358e0b`，见 `冷启动测试1` — 创建 `src/models.py` 及单元测试）。
+**PLAN.md 数据模型数量修正**：已在审查阶段（2026-08-11）完成，T02 从 7 个 dataclass 改为 8 个（含 Action）。
 ---
 
 *文档版本：1.0  

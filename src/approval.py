@@ -1,13 +1,13 @@
 """人工审批状态机 — 风险分级后的人工确认环节。
 
-request_approval(action, workspace) 返回 True/False，并写入内存日志。
+request_approval(decision, get_input, timeout) 返回 ApprovalResult。
 forbidden 级别直接拒绝，不做人工绕过。
 """
 
 import threading
 from datetime import datetime
 
-from src.guardrail import evaluate
+from src.models import ApprovalResult, RiskDecision, RiskLevel
 
 _approval_log = []
 
@@ -20,14 +20,14 @@ def clear_approval_log():
     _approval_log.clear()
 
 
-def request_approval(action, workspace, get_input=None, timeout=60):
-    risk_level = evaluate(action, workspace)
+def request_approval(decision: RiskDecision, get_input=None, timeout=60) -> ApprovalResult:
+    if decision.level == RiskLevel.FORBIDDEN:
+        result = ApprovalResult(approved=False, reason="FORBIDDEN")
+        _log(result, decision.level.value, "FORBIDDEN")
+        return result
 
-    if risk_level == "forbidden":
-        _log(action, risk_level, False, "FORBIDDEN")
-        return False
-
-    _print_details(action, risk_level)
+    if decision.action:
+        _print_details(decision)
 
     if get_input is None:
         get_input = input
@@ -36,30 +36,40 @@ def request_approval(action, workspace, get_input=None, timeout=60):
         try:
             user_input = _read_with_timeout(get_input, timeout)
         except TimeoutError:
-            _log(action, risk_level, False, "TIMEOUT")
-            return False
+            result = ApprovalResult(approved=False, reason="TIMEOUT")
+            _log(result, decision.level.value, "TIMEOUT")
+            return result
 
         cleaned = user_input.strip().lower()
         if cleaned == "y":
-            _log(action, risk_level, True, "APPROVED")
-            return True
+            result = ApprovalResult(approved=True, reason="APPROVED")
+            _log(result, decision.level.value, "APPROVED")
+            return result
         if cleaned == "n":
-            _log(action, risk_level, False, "REJECTED")
-            return False
+            result = ApprovalResult(approved=False, reason="REJECTED")
+            _log(result, decision.level.value, "REJECTED")
+            return result
 
 
-def _log(action, risk_level, approved, reason):
+def _log(result, risk_level, reason):
     _approval_log.append({
-        "action": action,
+        "approved": result.approved,
         "risk_level": risk_level,
-        "approved": approved,
         "reason": reason,
         "timestamp": datetime.now(),
     })
 
 
-def _print_details(action, risk_level):
-    pass
+def _print_details(decision):
+    action = decision.action or {}
+    print(f"\n[APPROVAL REQUIRED]")
+    print(f"  Action: {action.get('action', 'unknown')}")
+    if action.get("path"):
+        print(f"  Path:   {action['path']}")
+    if action.get("command"):
+        print(f"  Command: {action['command']}")
+    print(f"  Risk:   {decision.level.value} — {decision.rule}")
+    print(f"  Approve? (y/N): ", end="", flush=True)
 
 
 def _read_with_timeout(get_input, timeout):

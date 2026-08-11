@@ -10,6 +10,7 @@ from pathlib import Path
 
 _ALLOWED_COMMANDS = {"pytest", "python", "ruff", "git diff", "git status"}
 _MAX_READ_SIZE = 10000
+_MAX_FILE_SIZE = 100 * 1024
 _BLOCKED_DIRS = {".git", "__pycache__"}
 _BLOCKED_FILES = {".env"}
 _DEFAULT_TIMEOUT = 30
@@ -17,10 +18,11 @@ _DEFAULT_TIMEOUT = 30
 
 def _is_inside_workspace(path_str: str, workspace: str) -> bool:
     try:
-        resolved = Path(path_str).resolve()
-        ws_resolved = Path(workspace).resolve()
-        return str(resolved).startswith(str(ws_resolved))
-    except (ValueError, OSError):
+        resolved_path = os.path.realpath(path_str)
+        resolved_ws = os.path.realpath(workspace)
+        common = os.path.commonpath([resolved_path, resolved_ws])
+        return common == resolved_ws
+    except ValueError:
         return False
 
 
@@ -128,7 +130,7 @@ def write_file(path: str, content: str, workspace: str) -> dict:
     return _make_success(None, diff=diff_text)
 
 
-def run_tests(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_TIMEOUT) -> dict:
+def run_pytest(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_TIMEOUT) -> dict:
     try:
         proc = subprocess.run(
             command.split(),
@@ -192,3 +194,75 @@ def run_command(command: str, workspace: str) -> dict:
         }
     except FileNotFoundError:
         return _make_error(f"Command not found: {cmd_name}")
+
+
+def edit_file(path: str, start_line: int, end_line: int, new_content: str, workspace: str) -> dict:
+    if not _is_inside_workspace(path, workspace):
+        return _make_error("Path outside workspace")
+
+    p = Path(path)
+    basename = p.name
+
+    if basename in _BLOCKED_FILES:
+        return _make_error("Cannot edit .env file")
+
+    if basename.endswith(".pem"):
+        return _make_error("Cannot edit .pem file")
+
+    if basename.endswith(".key"):
+        return _make_error("Cannot edit .key file")
+
+    parts = p.resolve().parts
+    if ".git" in parts:
+        return _make_error("Cannot edit .git directory")
+
+    if not p.exists():
+        return _make_error("File not found")
+
+    if not p.is_file():
+        return _make_error("Not a file")
+
+    if _is_binary(p):
+        return _make_error("Cannot edit binary file")
+
+    file_size = p.stat().st_size
+    if file_size > _MAX_FILE_SIZE:
+        return _make_error(f"File too large: {file_size} bytes (max {_MAX_FILE_SIZE})")
+
+    try:
+        old_content = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return _make_error("Cannot edit binary file")
+
+    lines = old_content.splitlines(keepends=True)
+
+    if start_line < 1:
+        return _make_error("start_line must be >= 1")
+    if end_line > len(lines):
+        return _make_error(f"end_line ({end_line}) exceeds file length ({len(lines)})")
+    if start_line > end_line:
+        return _make_error("start_line must be <= end_line")
+
+    if new_content and not new_content.endswith("\n"):
+        new_content = new_content + "\n"
+
+    backup_path = p.with_suffix(p.suffix + ".bak")
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    backup_path.write_text(old_content, encoding="utf-8")
+
+    new_lines = lines[:start_line - 1] + [new_content] + lines[end_line:]
+    new_text = "".join(new_lines)
+    p.write_text(new_text, encoding="utf-8")
+
+    diff_lines = list(
+        difflib.unified_diff(
+            old_content.splitlines(keepends=True),
+            new_text.splitlines(keepends=True),
+            fromfile=str(p),
+            tofile=str(p),
+            lineterm="",
+        )
+    )
+    diff_text = "\n".join(diff_lines) if diff_lines else "(no changes)"
+
+    return _make_success(new_text, diff=diff_text)

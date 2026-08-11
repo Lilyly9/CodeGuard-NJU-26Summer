@@ -139,7 +139,7 @@ class TestValidationResult:
     def test_to_dict(self):
         r = ValidationResult(valid=False, reason="Path blocked")
         d = r.to_dict()
-        assert d == {"valid": False, "reason": "Path blocked", "sanitized_params": {}}
+        assert d == {"valid": False, "reason": "Path blocked", "sanitized_params": {}, "errors": [], "warnings": []}
 
     def test_to_dict_json_serializable(self):
         r = ValidationResult(valid=True, sanitized_params={"path": "ok.py"})
@@ -184,6 +184,7 @@ class TestRiskDecision:
             "rule": "Write operation",
             "needs_approval": False,
             "is_forbidden": False,
+            "action": None,
         }
 
     def test_to_dict_json_serializable(self):

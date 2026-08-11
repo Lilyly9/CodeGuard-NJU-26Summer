@@ -114,17 +114,23 @@ class ValidationResult:
         valid: 校验是否通过。
         reason: 校验失败时的原因描述；成功时为空字符串。
         sanitized_params: 校验后清理过的参数（可能被规范化）。
+        errors: 校验错误列表。
+        warnings: 校验警告列表（如未知字段）。
     """
 
     valid: bool
     reason: str = ""
     sanitized_params: dict = field(default_factory=dict)
+    errors: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "valid": self.valid,
             "reason": self.reason,
             "sanitized_params": _serialize(self.sanitized_params),
+            "errors": self.errors,
+            "warnings": self.warnings,
         }
 
 
@@ -137,12 +143,14 @@ class RiskDecision:
         rule: 触发该分级的规则描述。
         needs_approval: 是否需要人工审批（HIGH 级别为 True）。
         is_forbidden: 是否被直接拦截（FORBIDDEN 级别为 True）。
+        action: 关联的动作参数（来自 ValidationResult.sanitized_params）。
     """
 
     level: RiskLevel
     rule: str
     needs_approval: bool = False
     is_forbidden: bool = False
+    action: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -150,6 +158,7 @@ class RiskDecision:
             "rule": self.rule,
             "needs_approval": self.needs_approval,
             "is_forbidden": self.is_forbidden,
+            "action": _serialize(self.action),
         }
 
 

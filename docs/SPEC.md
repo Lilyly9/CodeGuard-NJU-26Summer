@@ -40,7 +40,7 @@ CodeGuard 通过一个 **确定性代码实现的治理层**，在 LLM 与操作
 
 | 工具             | 技术实现                                                            | 验收方式                                      |
 | ---------------- | ------------------------------------------------------------------- | --------------------------------------------- |
-| `list_directory` | `pathlib.Path` + 路径沙箱检查，返回文件/目录列表（过滤敏感项）      | 路径沙箱类 Mock 测试                          |
+| `list_files` | `pathlib.Path` + 路径沙箱检查，返回文件/目录列表（过滤敏感项）      | 路径沙箱类 Mock 测试                          |
 | `read_file`      | 路径沙箱 + 大小限制（默认 100KB），只读文本文件                     | 同上                                          |
 | `write_file`     | 路径沙箱 + 备份原内容（`.bak`）+ 生成 diff                          | 同上                                          |
 | `edit_file`      | 基于 `str.replace` 精确替换（或 `difflib` 生成 patch）              | 同上                                          |
@@ -109,14 +109,14 @@ text
 | ---------- | ------------------------------------------------------------ | ----------------------------------------------------- |
 | Parser     | `parse_llm_output(raw: str) -> ParseResult`                  | 解析 JSON，验证 action 字段存在，参数完整             |
 | Validation | `validate_action(parsed: ParseResult) -> ValidationResult`   | 路径沙箱检查、命令白名单检查、敏感文件黑名单          |
-| Risk       | `assess_risk(validated: ValidationResult) -> RiskDecision`   | 返回风险等级及触发规则                                |
+| Risk       | `assess_risk(validated: ValidationResult, config: Config) -> RiskDecision`   | 返回风险等级及触发规则，读取 config 中的白名单/黑名单规则                                |
 | Approval   | `request_approval(decision: RiskDecision) -> ApprovalResult` | 阻塞等待用户输入 Y/N/超时，返回审批结果               |
 | Execute    | `execute_tool(action: str, params: dict) -> ToolResult`      | 调用具体工具实现，捕获异常                            |
 | Feedback   | `build_feedback(result: ToolResult) -> str`                  | 生成自然语言反馈，附加结构化数据（如 diff、测试统计） |
 
 ### 4.3 Governance Layer 风险分级逻辑（代码规则）
 
-- **LOW**：`list_directory`, `read_file`（非敏感文件），`git status`, `git diff`  
+- **LOW**：`list_files`, `read_file`（非敏感文件），`git status`, `git diff`  
   → 自动执行，记录审计日志。
 - **MEDIUM**：`write_file`, `edit_file`（普通代码文件），`run_pytest`，`ruff`, `mypy`  
   → 自动执行，但必须保存 diff/备份，并详细记录输入输出。
@@ -159,6 +159,18 @@ text
 | 时序竞争（如多次写入并发） | 第一版放过                   | P2 引入文件锁                                        |
 | 日志泄露敏感信息           | 审计日志过滤器已屏蔽 API Key | 持续加固                                             |
 
+### 5.3 Fail-safe 设计原则（默认拒绝）
+
+当系统组件处于不确定状态时，必须偏向安全一侧。以下原则为所有安全机制的底层约束：
+
+1. **默认拒绝**：任何未明确允许的操作都应被拒绝。路径沙箱、命令白名单、风险分级器在遇到无法判定的输入时，默认返回拒绝（路径不可达、命令不允许、风险等级 FORBIDDEN）。不得依赖 LLM 的"自觉"来做安全判断。
+
+2. **审计失败停止**：如果审计日志无法写入（磁盘满、权限不足、文件系统异常），Agent 应停止执行。不能在没有审计记录的情况下继续执行，否则无法追溯操作历史。
+
+3. **审批崩溃默认拒绝**：如果审批流程因异常崩溃（终端关闭、进程被杀、超时），默认拒绝执行该操作。不能因系统错误而导致危险操作被绕过。审批超时 = 拒绝，审批异常 = 拒绝。
+
+4. **沙箱边界硬检查**：路径沙箱和命令沙箱使用硬编码的边界检查（`os.path.commonpath()`、正则表达式匹配），不依赖 LLM 的判断。即使 LLM 返回"路径安全"的声明，沙箱层仍然独立执行检查。
+
 ---
 
 ## 6. 功能优先级（MoSCoW）
@@ -170,7 +182,7 @@ text
 - Parser 层：`parse_llm_output` 正确解析 JSON，错误时返回 ParseError。
 - 路径沙箱：`is_path_allowed(path)` 检查绝对路径是否在 workspace 内且不匹配黑名单。
 - 命令沙箱：`is_command_allowed(cmd)` 检查命令是否在白名单且无禁止符。
-- 基础工具栏：`list_directory`, `read_file`, `write_file`, `edit_file`, `run_command`（仅白名单），`finish`。
+- 基础工具栏：`list_files`, `read_file`, `write_file`, `edit_file`, `run_command`（仅白名单），`finish`。
 - `run_pytest` 作为独立工具（或作为 `run_command` 的特殊案例）。
 - 最大步数限制和连续无效动作检测（死循环保护）。
 - Keyring 密钥管理（首次录入、查看状态、更新、清除）。
@@ -245,19 +257,23 @@ text
    *验收*：只能读取文本文件，大小不超过 100KB，禁止读取 `.env` 等敏感文件。
 
 3. **作为用户，我希望 Agent 能修改代码文件**，并保留修改前后的 diff。  
-   *验收*：修改前自动备份（`.bak`），生成 unified diff 记录，并写入审计日志。
+   *验收*：修改前自动备份（`.bak`），生成 unified diff 记录，并写入审计日志。  
+   *依赖*：故事 2（读取代码）——需要先具备读取文件内容的能力才能进行修改。
 
 4. **作为用户，我希望 Agent 能运行 pytest**，以验证修改是否正确。  
-   *验收*：pytest 输出（包括失败详情）被捕获并回灌给 LLM；超时（30s）被强制终止。
+   *验收*：pytest 输出（包括失败详情）被捕获并回灌给 LLM；超时（30s）被强制终止。  
+   *依赖*：故事 3（修改代码）——需要先有代码修改能力才能验证修改是否正确。
 
 5. **作为用户，我希望高风险操作（如写入大文件或执行安装命令）能暂停并请求我的批准**。  
-   *验收*：终端显示动作详情、风险原因，等待我输入 Y/N，超时后自动拒绝。
+   *验收*：终端显示动作详情、风险原因，等待我输入 Y/N，超时后自动拒绝。  
+   *依赖*：故事 3（修改代码）、故事 4（运行测试）——需要对具体动作进行风险分级后触发审批。
 
 6. **作为用户，我希望系统能无条件拦截极度危险操作（如 `rm -rf /`、读取 SSH 私钥）**，绝不执行。  
    *验收*：拦截后反馈给 Agent，审计日志永久记录，且无法通过审批绕过。
 
 7. **作为用户，我希望查看 CodeGuard 的完整执行记录**，以便审计每步动作。  
-   *验收*：审计日志以 JSON 格式存储每轮 step，含时间戳、动作、风险等级、审批结果、执行结果（不包含密钥）。
+   *验收*：审计日志以 JSON 格式存储每轮 step，含时间戳、动作、风险等级、审批结果、执行结果（不包含密钥）。  
+   *依赖*：故事 1-6（全部）——审计日志需要记录所有动作的执行结果。
 
 ---
 
@@ -284,7 +300,7 @@ text
 
 每个工具都接受 `params` 字典，返回 `ToolResult`（含 `success: bool`, `data: Any`, `error: str`, `meta: dict`）。
 
-- **list_directory**  
+- **list_files**  
   - 参数：`{"path": str, "depth": int}`（depth 默认 1）。  
   - 行为：返回目录下文件和子目录列表，过滤黑名单模式。  
   - 边界：不允许深度 > 3，防止递归爆炸。  
@@ -526,49 +542,70 @@ def run_agent(task: str, config: Config):
     memory = Memory(config)
     step = 0
     consecutive_failures = 0
+    last_action = None
+    same_action_count = 0
 
-    while step < config.max_steps:
-        step += 1
-        raw = llm.next_action(context)
-        parse_result = parse_llm_output(raw)
-        if parse_result.error:
-            context.append(f"Parse error: {parse_result.error}")
-            consecutive_failures += 1
-            if consecutive_failures >= 3: break
-            continue
+    try:
+        while step < config.max_steps:
+            step += 1
+            raw = llm.next_action(context)
+            parse_result = parse_llm_output(raw)
+            if parse_result.error:
+                context.append(f"Parse error: {parse_result.error}")
+                consecutive_failures += 1
+                if consecutive_failures >= 3: break
+                continue
 
-        action = parse_result.action
-        # Validation
-        val_result = validate_action(action, config)
-        if not val_result.valid:
-            context.append(f"Invalid action: {val_result.reason}")
-            consecutive_failures += 1
-            if consecutive_failures >= 3: break
-            continue
+            action = parse_result.action
+            # Validation
+            val_result = validate_action(action, config)
+            if not val_result.valid:
+                context.append(f"Invalid action: {val_result.reason}")
+                consecutive_failures += 1
+                if consecutive_failures >= 3: break
+                continue
 
-        # Risk assessment
-        risk = assess_risk(val_result, config)
-        if risk.level == FORBIDDEN:
-            result = ToolResult(success=False, error="Action forbidden", meta={"blocked": True})
-        elif risk.level == HIGH:
-            approval = request_approval(action, risk)
-            if not approval.approved:
-                result = ToolResult(success=False, error="User rejected", meta={"blocked": True})
+            # Risk assessment
+            risk = assess_risk(val_result, config)
+            if risk.level == FORBIDDEN:
+                result = ToolResult(success=False, error="Action forbidden", meta={"blocked": True})
+            elif risk.level == HIGH:
+                approval = request_approval(action, risk)
+                if not approval.approved:
+                    result = ToolResult(success=False, error="User rejected", meta={"blocked": True})
+                else:
+                    result = execute_tool(action)
             else:
                 result = execute_tool(action)
-        else:
-            result = execute_tool(action)
 
-        # Feedback and context update
-        feedback = build_feedback(result)
-        memory.add(action, result)
-        context.append(feedback)
+            # Feedback and context update
+            feedback = build_feedback(result)
+            memory.add(action, result)
+            context.append(feedback)
+            consecutive_failures = 0
 
-        # Check stop conditions
-        if action.type == "finish": break
-        if all_tests_passed and config.auto_finish: break
-        if result.success and result.meta.get("exit_code") == 0 and action.type == "run_pytest": # 可配置
-            pass
+            # ── 6 stop conditions (§4.4) ──────────────────────────────────
+            # 1. finish action
+            if action.type == "finish": break
+            # 2. tests pass + auto-finish
+            if _all_tests_passed(memory) and config.auto_finish_on_test_pass: break
+            # 3. max_steps — handled by while condition
+            # 4. repeated same action (dead loop detection)
+            if action.type == last_action:
+                same_action_count += 1
+                if same_action_count >= 3: break
+            else:
+                last_action = action.type
+                same_action_count = 1
+            # 5. consecutive failures — handled by consecutive_failures >= 3 above
+            # 6. unrecoverable error — caught by outer except
+
+    except KeyboardInterrupt:
+        # 5. user interrupt (Ctrl+C)
+        memory.summarize()
+    except Exception as e:
+        # 6. unrecoverable error
+        memory.summarize()
 
     return memory.summarize()
 ```

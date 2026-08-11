@@ -35,12 +35,21 @@ class RealLLM(BaseLLM):
     def __init__(self, api_key: str = "", model: str = "gpt-4o-mini",
                  max_tokens: int = 1024, temperature: float = 0.1,
                  timeout: int = 60, max_retries: int = 3):
-        self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self._api_key = api_key or self._load_key()
         self._model = model or os.environ.get("LLM_MODEL", "gpt-4o-mini")
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._timeout = timeout
         self._max_retries = max_retries
+
+    @staticmethod
+    def _load_key() -> str:
+        from src.keyring_manager import KeyringManager
+        km = KeyringManager()
+        key = km.get_key()
+        if key:
+            return key
+        return os.environ.get("OPENAI_API_KEY", "")
 
     def get_response(self, messages: list) -> str:
         from openai import OpenAI

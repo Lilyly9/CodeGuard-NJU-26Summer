@@ -98,7 +98,7 @@ def demo_feedback():
             json.dumps({"action": "read_file", "path": "src/calc.py"}),
             json.dumps({"action": "write_file", "path": "src/calc.py",
                         "content": "def add(a, b):\n    return a + b\n"}),
-            json.dumps({"action": "run_tests"}),
+            json.dumps({"action": "run_pytest"}),
             json.dumps({"action": "finish", "summary": "All tests pass"}),
         ])
         result = run(

@@ -1,6 +1,6 @@
 """TDD Step 1 (RED): 文件操作工具 — 失败测试。
 
-覆盖 list_files, read_file, write_file, run_tests, run_command。
+覆盖 list_files, read_file, write_file, run_pytest, run_command。
 所有路径操作必须校验是否在 workspace 内。
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tools import list_files, read_file, run_command, run_tests, write_file
+from src.tools import edit_file, list_files, read_file, run_command, run_pytest, write_file
 
 _WORKSPACE = "workspace"
 
@@ -190,7 +190,7 @@ class TestWriteFile:
         assert "env" in result["error"].lower()
 
 
-class TestRunTests:
+class TestRunPytest:
     def test_runs_pytest_and_returns_results(self, tmp_path):
         ws = tmp_path / _WORKSPACE
         ws.mkdir()
@@ -199,7 +199,7 @@ class TestRunTests:
             "def test_pass():\n    assert 1 == 1\n"
         )
 
-        result = run_tests(str(ws), command="pytest tests/ -v")
+        result = run_pytest(str(ws), command="pytest tests/ -v")
         assert result["success"] is True
         assert result["meta"]["exit_code"] == 0
         assert "passed" in result["meta"]["stdout"].lower()
@@ -212,7 +212,7 @@ class TestRunTests:
             "def test_fail():\n    assert 1 == 2\n"
         )
 
-        result = run_tests(str(ws), command="pytest tests/test_fail.py -v")
+        result = run_pytest(str(ws), command="pytest tests/test_fail.py -v")
         assert result["success"] is False
         assert result["meta"]["exit_code"] != 0
         assert "failed" in result["meta"]["stdout"].lower()
@@ -228,7 +228,7 @@ class TestRunTests:
             "    assert True\n"
         )
 
-        result = run_tests(
+        result = run_pytest(
             str(ws), command="pytest tests/test_sleep.py -v", timeout=1
         )
         assert result["success"] is False
@@ -274,3 +274,130 @@ class TestRunCommand:
         result = run_command("git status", str(ws))
         assert result["success"] is False
         assert "not allowed" not in result["error"].lower()
+
+
+class TestEditFile:
+    def test_replaces_line_range(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("line1\nline2\nline3\nline4\nline5\n")
+
+        result = edit_file(str(ws / "main.py"), 2, 4, "new2\nnew3\nnew4", str(ws))
+        assert result["success"] is True
+        assert result["data"] == "line1\nnew2\nnew3\nnew4\nline5\n"
+        assert (ws / "main.py").read_text() == "line1\nnew2\nnew3\nnew4\nline5\n"
+
+    def test_replaces_single_line(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("line1\nline2\nline3\n")
+
+        result = edit_file(str(ws / "main.py"), 2, 2, "replaced", str(ws))
+        assert result["success"] is True
+        assert result["data"] == "line1\nreplaced\nline3\n"
+
+    def test_rejects_path_outside_workspace(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        outside = tmp_path / "outside.txt"
+        outside.write_text("secret")
+
+        result = edit_file(str(outside), 1, 1, "hack", str(ws))
+        assert result["success"] is False
+        assert "outside workspace" in result["error"].lower()
+
+    def test_rejects_dot_env_edit(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / ".env").write_text("SECRET=123")
+
+        result = edit_file(str(ws / ".env"), 1, 1, "SECRET=456", str(ws))
+        assert result["success"] is False
+        assert "env" in result["error"].lower()
+
+    def test_rejects_pem_edit(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "key.pem").write_text("----BEGIN KEY----")
+
+        result = edit_file(str(ws / "key.pem"), 1, 1, "x", str(ws))
+        assert result["success"] is False
+        assert "pem" in result["error"].lower()
+
+    def test_rejects_key_edit(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "secret.key").write_text("keydata")
+
+        result = edit_file(str(ws / "secret.key"), 1, 1, "x", str(ws))
+        assert result["success"] is False
+        assert "key" in result["error"].lower()
+
+    def test_rejects_git_dir_edit(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / ".git").mkdir()
+        (ws / ".git" / "config").write_text("[core]")
+
+        result = edit_file(str(ws / ".git" / "config"), 1, 1, "x", str(ws))
+        assert result["success"] is False
+        assert "git" in result["error"].lower()
+
+    def test_diff_generated_correctly(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "calc.py").write_text("def add(a,b):\n    return a-b\n")
+
+        result = edit_file(str(ws / "calc.py"), 2, 2, "    return a+b", str(ws))
+        assert result["success"] is True
+        diff = result["meta"]["diff"]
+        assert "-    return a-b" in diff
+        assert "+    return a+b" in diff
+
+    def test_backup_saved(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("original\ncontent\n")
+
+        result = edit_file(str(ws / "main.py"), 2, 2, "modified", str(ws))
+        assert result["success"] is True
+        backup = ws / "main.py.bak"
+        assert backup.exists()
+        assert backup.read_text() == "original\ncontent\n"
+
+    def test_rejects_large_file(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        big_content = "x" * (100 * 1024 + 1)
+        (ws / "big.txt").write_text(big_content)
+
+        result = edit_file(str(ws / "big.txt"), 1, 1, "y", str(ws))
+        assert result["success"] is False
+        assert "too large" in result["error"].lower()
+
+    def test_rejects_invalid_line_range(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("line1\nline2\n")
+
+        result = edit_file(str(ws / "main.py"), 5, 6, "x", str(ws))
+        assert result["success"] is False
+        assert "exceeds" in result["error"].lower()
+
+    def test_rejects_start_line_less_than_one(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("line1\nline2\n")
+
+        result = edit_file(str(ws / "main.py"), 0, 1, "x", str(ws))
+        assert result["success"] is False
+        assert "start_line" in result["error"].lower()
+
+    def test_rejects_start_gt_end(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / "main.py").write_text("line1\nline2\n")
+
+        result = edit_file(str(ws / "main.py"), 2, 1, "x", str(ws))
+        assert result["success"] is False
+        assert "start_line" in result["error"].lower()
