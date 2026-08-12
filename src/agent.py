@@ -189,8 +189,13 @@ class Agent:
                     self._notify("blocked", {"step": step, "action": action_dict, "risk_level": risk.level.value, "reason": "forbidden"})
                     continue
 
+                approval_info = None
                 if risk.level == RiskLevel.HIGH:
                     approval_result = _call_approval(self.approval_fn, risk, action_dict, workspace)
+                    approval_info = {
+                        "approved": bool(approval_result.approved),
+                        "reason": approval_result.reason,
+                    }
                     if not approval_result.approved:
                         context.append({
                             "role": "user",
@@ -201,6 +206,7 @@ class Agent:
                             "timestamp": datetime.now(),
                             "action": action_dict,
                             "risk_level": risk.level.value,
+                            "approval": approval_info,
                             "final_decision": "REJECTED",
                         })
                         memory.add_history(action_dict, {"success": False, "error": "User rejected", "meta": {"blocked": True}})
@@ -216,6 +222,7 @@ class Agent:
                     "timestamp": datetime.now(),
                     "action": action_dict,
                     "risk_level": risk.level.value,
+                    "approval": approval_info,
                     "tool_result": tool_result,
                     "final_decision": "EXECUTED",
                 })
@@ -240,12 +247,34 @@ class Agent:
         else:
             finish_reason = "finish_action" if finished else "max_steps"
 
+        audit_log = logger.get_entries()
+
+        # Extract summary fields from the audit log for the caller.
+        modified_files = []
+        for entry in audit_log:
+            action = entry.get("action", {}) or {}
+            if action.get("action") in ("write_file", "edit_file") and \
+                    entry.get("final_decision") == "EXECUTED":
+                path = action.get("path")
+                if path and path not in modified_files:
+                    modified_files.append(path)
+
+        final_test_result = None
+        for entry in reversed(audit_log):
+            action = entry.get("action", {}) or {}
+            if action.get("action") in ("run_pytest", "run_command"):
+                final_test_result = entry.get("tool_result")
+                break
+
         result = {
             "success": True,
             "steps": step,
             "finish_reason": finish_reason,
             "stop_reason": stop_reason,
-            "audit_log": logger.get_entries(),
+            "audit_log": audit_log,
+            "modified_files": modified_files,
+            "final_test_result": final_test_result,
+            "pending": [],
         }
         self._notify("completed", result)
         return result

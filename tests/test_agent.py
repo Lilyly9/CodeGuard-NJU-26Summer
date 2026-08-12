@@ -618,6 +618,66 @@ class TestAuditLog:
 
         assert result["audit_log"][0]["final_decision"] == "EXECUTED"
 
+    def test_audit_log_records_approval_decision(self, tmp_path):
+        llm = MockLLM([
+            json.dumps({"action": "write_file", "path": "x.py", "content": "x"}),
+            json.dumps({"action": "finish", "summary": "done"}),
+        ])
+
+        result = run(
+            "Write",
+            str(tmp_path),
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_high,
+            approval_fn=MockApproval([False]),
+            tools_module=MockTools(),
+        )
+
+        entry = result["audit_log"][0]
+        assert entry["final_decision"] == "REJECTED"
+        assert "approval" in entry, f"expected approval decision in log entry, got {entry}"
+        assert entry["approval"]["approved"] is False
+        assert "REJECTED" in entry["approval"]["reason"]
+
+    def test_result_contains_summary_fields(self, tmp_path):
+        llm = MockLLM([
+            json.dumps({"action": "read_file", "path": "src/calc.py"}),
+            json.dumps({"action": "write_file", "path": "src/calc.py", "content": "def add(a,b): return a+b"}),
+            json.dumps({"action": "run_pytest"}),
+            json.dumps({"action": "finish", "summary": "done"}),
+        ])
+        tools = MockTools()
+
+        def assess_risk_fn(validated, config):
+            action = validated.sanitized_params
+            action_type = action.get("action", "")
+            if action_type == "read_file":
+                return _make_risk("low")
+            if action_type == "write_file":
+                return _make_risk("medium")
+            if action_type == "run_pytest":
+                return _make_risk("medium")
+            return _make_risk("low")
+
+        result = run(
+            "Fix calculator",
+            str(tmp_path),
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+            config=Config(auto_finish_on_test_pass=False),
+        )
+
+        assert "modified_files" in result, f"missing modified_files, got keys: {list(result.keys())}"
+        assert "final_test_result" in result
+        assert "pending" in result
+        assert "src/calc.py" in result["modified_files"]
+        assert result["final_test_result"] is not None
+        assert result["pending"] == []
+
 
 class TestIntegration:
     def test_full_workflow_modify_test_pass(self, tmp_path):
