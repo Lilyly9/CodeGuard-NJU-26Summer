@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from src.config import Config
 from src.tools import edit_file, list_files, read_file, run_command, run_pytest, write_file
 
 _WORKSPACE = "workspace"
@@ -401,3 +402,36 @@ class TestEditFile:
         result = edit_file(str(ws / "main.py"), 2, 1, "x", str(ws))
         assert result["success"] is False
         assert "start_line" in result["error"].lower()
+
+
+class TestWriteFileEnhanced:
+    def test_write_file_side_effect(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        file_path = ws / "output.txt"
+
+        result = write_file(str(file_path), "hello world", str(ws))
+        assert result["success"] is True
+        assert file_path.read_text() == "hello world"
+
+    def test_write_file_exceeds_max_size(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        config = Config()
+        config.max_file_size = 100
+        file_path = ws / "big.txt"
+
+        result = write_file(str(file_path), "x" * 101, str(ws), config=config)
+        assert result["success"] is False
+        assert "too large" in result["error"].lower()
+        assert not file_path.exists()
+
+
+class TestReadFileEnhanced:
+    def test_read_file_empty_path(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+
+        result = read_file("", str(ws))
+        assert result["success"] is False
+        assert "empty" in result["error"].lower()

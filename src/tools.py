@@ -18,6 +18,8 @@ _DEFAULT_TIMEOUT = 30
 
 def _is_inside_workspace(path_str: str, workspace: str) -> bool:
     try:
+        if not os.path.isabs(path_str):
+            path_str = os.path.join(workspace, path_str)
         resolved_path = os.path.realpath(path_str)
         resolved_ws = os.path.realpath(workspace)
         common = os.path.commonpath([resolved_path, resolved_ws])
@@ -44,6 +46,8 @@ def _make_success(data=None, **meta) -> dict:
 
 
 def list_files(path: str, workspace: str, depth: int = 2) -> dict:
+    if not os.path.isabs(path):
+        path = os.path.join(workspace, path)
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
 
@@ -72,6 +76,11 @@ def list_files(path: str, workspace: str, depth: int = 2) -> dict:
 
 
 def read_file(path: str, workspace: str) -> dict:
+    if not path:
+        return _make_error("Path cannot be empty")
+
+    if not os.path.isabs(path):
+        path = os.path.join(workspace, path)
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
 
@@ -101,9 +110,18 @@ def read_file(path: str, workspace: str) -> dict:
     return _make_success(content, truncated=truncated, size=len(content))
 
 
-def write_file(path: str, content: str, workspace: str) -> dict:
+def write_file(path: str, content: str, workspace: str, config=None) -> dict:
+    if not os.path.isabs(path):
+        path = os.path.join(workspace, path)
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
+
+    max_size = _MAX_FILE_SIZE
+    if config is not None:
+        max_size = config.max_file_size
+
+    if len(content) > max_size:
+        return _make_error(f"Content too large: {len(content)} bytes (max {max_size})")
 
     p = Path(path)
     if p.name in _BLOCKED_FILES:
@@ -197,6 +215,8 @@ def run_command(command: str, workspace: str) -> dict:
 
 
 def edit_file(path: str, start_line: int, end_line: int, new_content: str, workspace: str) -> dict:
+    if not os.path.isabs(path):
+        path = os.path.join(workspace, path)
     if not _is_inside_workspace(path, workspace):
         return _make_error("Path outside workspace")
 

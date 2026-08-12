@@ -8,10 +8,14 @@ dependencies = [
     "openai",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_files = "test_*.py"
 pythonpath = ["."]

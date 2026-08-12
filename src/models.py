@@ -213,7 +213,7 @@ class ToolResult:
 
 
 @dataclass
-class Memory:
+class MemoryState:
     """会话记忆，存储当前任务上下文和历史。
 
     Attributes:

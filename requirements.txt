@@ -2,3 +2,4 @@ keyring
 tomli
 openai
 pytest
+flask

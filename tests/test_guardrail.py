@@ -203,3 +203,42 @@ class TestRiskDecisionFields:
         result = evaluate({"action": "read_file", "path": str(ws / "x.py")}, str(ws))
         assert result.needs_approval is False
         assert result.is_forbidden is False
+
+
+class TestCaseInsensitive:
+    def test_block_command_case_insensitive(self):
+        variants = ["rm -rf /", "RM -RF /", "Rm -Rf /", "  rm -rf /  "]
+        for cmd in variants:
+            result = evaluate({"action": "run_command", "command": cmd}, "/ws")
+            assert result.level == RiskLevel.FORBIDDEN, f"'{cmd}' should be FORBIDDEN, got {result.level}"
+
+    def test_allow_safe_special_chars(self):
+        result = evaluate({"action": "run_command", "command": 'pytest -k "test_add or test_sub"'}, "/ws")
+        assert result.level != RiskLevel.FORBIDDEN
+        assert result.level in (RiskLevel.MEDIUM, RiskLevel.LOW)
+
+
+class TestBoundaryExploits:
+    def test_subshell_dollar_paren(self):
+        result = evaluate({"action": "run_command", "command": "echo $(cat /etc/passwd)"}, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN
+
+    def test_subshell_backtick(self):
+        result = evaluate({"action": "run_command", "command": "echo `cat /etc/passwd`"}, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN
+
+    def test_path_traversal_double_slash(self):
+        result = evaluate({"action": "read_file", "path": "....//....//config"}, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN
+
+    def test_git_config_sensitive(self):
+        result = evaluate({"action": "read_file", "path": ".git/config"}, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN
+
+    def test_evaluate_none_graceful(self):
+        result = evaluate(None, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN
+
+    def test_evaluate_empty_dict(self):
+        result = evaluate({}, "/ws")
+        assert result.level == RiskLevel.FORBIDDEN

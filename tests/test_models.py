@@ -12,7 +12,7 @@ from src.models import (
     Action,
     ApprovalResult,
     AuditLog,
-    Memory,
+    MemoryState,
     ParseResult,
     RiskDecision,
     RiskLevel,
@@ -288,7 +288,7 @@ class TestToolResult:
 
 class TestMemory:
     def test_create_minimal(self):
-        m = Memory(task="fix add function")
+        m = MemoryState(task="fix add function")
         assert m.task == "fix add function"
         assert m.history == []
         assert m.last_test_result is None
@@ -297,12 +297,12 @@ class TestMemory:
 
     def test_create_with_history(self):
         actions = [Action(type="read_file"), Action(type="write_file")]
-        m = Memory(task="test", history=actions, step_count=2)
+        m = MemoryState(task="test", history=actions, step_count=2)
         assert len(m.history) == 2
         assert m.step_count == 2
 
     def test_to_dict(self):
-        m = Memory(task="fix add", step_count=1)
+        m = MemoryState(task="fix add", step_count=1)
         d = m.to_dict()
         assert d["task"] == "fix add"
         assert d["history"] == []
@@ -313,7 +313,7 @@ class TestMemory:
     def test_to_dict_with_nested(self):
         action = Action(type="read_file", params={"path": "x.py"})
         tr = ToolResult(success=True, data="content")
-        m = Memory(
+        m = MemoryState(
             task="test",
             history=[action],
             last_test_result=tr,
@@ -325,7 +325,7 @@ class TestMemory:
         assert d["last_test_result"]["success"] is True
 
     def test_to_dict_json_serializable(self):
-        m = Memory(task="test", step_count=0)
+        m = MemoryState(task="test", step_count=0)
         json.dumps(m.to_dict())
 
 

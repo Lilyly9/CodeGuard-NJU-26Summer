@@ -44,12 +44,15 @@ class RealLLM(BaseLLM):
 
     @staticmethod
     def _load_key() -> str:
+        env_key = os.environ.get("OPENAI_API_KEY", "")
+        if env_key:
+            return env_key
         from src.keyring_manager import KeyringManager
         km = KeyringManager()
         key = km.get_key()
         if key:
             return key
-        return os.environ.get("OPENAI_API_KEY", "")
+        raise ValueError("OPENAI_API_KEY not found. Set environment variable OPENAI_API_KEY or run 'python -m src.keyring_manager --set'.")
 
     def get_response(self, messages: list) -> str:
         from openai import OpenAI

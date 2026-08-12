@@ -6,7 +6,7 @@ import pytest
 
 from src.agent import run
 from src.config import Config
-from src.models import Action, ApprovalResult, ParseResult, RiskDecision, RiskLevel
+from src.models import Action, ApprovalResult, ParseResult, RiskDecision, RiskLevel, ValidationResult
 
 
 def _make_risk(level):
@@ -63,6 +63,26 @@ def mock_parse_error(raw):
     return ParseResult(action=None, error="Invalid JSON")
 
 
+def _mock_validate_pass(action, workspace, config):
+    return ValidationResult(valid=True, sanitized_params=action)
+
+
+def _mock_assess_risk_low(validated, config):
+    return _make_risk("low")
+
+
+def _mock_assess_risk_medium(validated, config):
+    return _make_risk("medium")
+
+
+def _mock_assess_risk_high(validated, config):
+    return _make_risk("high")
+
+
+def _mock_assess_risk_forbidden(validated, config):
+    return _make_risk("forbidden")
+
+
 def mock_evaluate_low(action, workspace):
     return _make_risk("low")
 
@@ -117,7 +137,7 @@ class TestAgentBasicFlow:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -140,7 +160,7 @@ class TestAgentBasicFlow:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -163,7 +183,7 @@ class TestAgentBasicFlow:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_medium,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_medium,
             approval_fn=MockApproval([]),
             tools_module=tools,
             config=Config(auto_finish_on_test_pass=False),
@@ -188,7 +208,7 @@ class TestAgentBasicFlow:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -211,7 +231,7 @@ class TestForbiddenAction:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_forbidden,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_forbidden,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -231,7 +251,7 @@ class TestForbiddenAction:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_forbidden,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_forbidden,
             approval_fn=MockApproval([]),
             tools_module=MockTools(),
         )
@@ -259,7 +279,7 @@ class TestForbiddenAction:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_forbidden,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_forbidden,
             approval_fn=approval,
             tools_module=MockTools(),
         )
@@ -282,7 +302,7 @@ class TestHighRiskApproval:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_high,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_high,
             approval_fn=approval,
             tools_module=tools,
         )
@@ -305,7 +325,7 @@ class TestHighRiskApproval:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_high,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_high,
             approval_fn=approval,
             tools_module=tools,
         )
@@ -326,7 +346,7 @@ class TestHighRiskApproval:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_high,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_high,
             approval_fn=approval,
             tools_module=MockTools(),
         )
@@ -359,7 +379,7 @@ class TestMaxSteps:
             max_steps=3,
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -382,7 +402,7 @@ class TestMaxSteps:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -404,7 +424,7 @@ class TestParseError:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_error,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -433,7 +453,7 @@ class TestFinishAction:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -457,7 +477,7 @@ class TestToolExecutionFeedback:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -498,7 +518,7 @@ class TestToolExecutionFeedback:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=FailingTools(),
         )
@@ -522,7 +542,8 @@ class TestAuditLog:
         ])
         tools = MockTools()
 
-        def evaluate_fn(action, workspace):
+        def assess_risk_fn(validated, config):
+            action = validated.sanitized_params
             if action.get("action") == "read_file":
                 return _make_risk("low")
             return _make_risk("medium")
@@ -532,7 +553,7 @@ class TestAuditLog:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=evaluate_fn,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -554,7 +575,7 @@ class TestAuditLog:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_forbidden,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_forbidden,
             approval_fn=MockApproval([]),
             tools_module=MockTools(),
         )
@@ -572,7 +593,7 @@ class TestAuditLog:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_high,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_high,
             approval_fn=MockApproval([False]),
             tools_module=MockTools(),
         )
@@ -590,7 +611,7 @@ class TestAuditLog:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=MockTools(),
         )
@@ -608,7 +629,8 @@ class TestIntegration:
         ])
         tools = MockTools()
 
-        def evaluate_fn(action, workspace):
+        def assess_risk_fn(validated, config):
+            action = validated.sanitized_params
             action_type = action.get("action", "")
             if action_type == "read_file":
                 return _make_risk("low")
@@ -623,7 +645,7 @@ class TestIntegration:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=evaluate_fn,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
             approval_fn=MockApproval([]),
             tools_module=tools,
             config=Config(auto_finish_on_test_pass=False),
@@ -646,7 +668,8 @@ class TestIntegration:
         tools = MockTools()
         approval = MockApproval([True])
 
-        def evaluate_fn(action, workspace):
+        def assess_risk_fn(validated, config):
+            action = validated.sanitized_params
             if action.get("action") == "write_file":
                 return _make_risk("high")
             return _make_risk("low")
@@ -656,7 +679,7 @@ class TestIntegration:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=evaluate_fn,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
             approval_fn=approval,
             tools_module=tools,
         )
@@ -676,7 +699,8 @@ class TestAutoFinishOnTestPass:
         ])
         tools = MockTools()
 
-        def evaluate_fn(action, workspace):
+        def assess_risk_fn(validated, config):
+            action = validated.sanitized_params
             action_type = action.get("action", "")
             if action_type == "read_file":
                 return _make_risk("low")
@@ -691,7 +715,7 @@ class TestAutoFinishOnTestPass:
             str(tmp_path),
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=evaluate_fn,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -736,7 +760,7 @@ class TestAutoFinishOnTestPass:
         ])
         tools = FailingTestTools()
 
-        def evaluate_fn(action, workspace):
+        def assess_risk_fn(validated, config):
             return _make_risk("low")
 
         result = run(
@@ -745,7 +769,7 @@ class TestAutoFinishOnTestPass:
             max_steps=10,
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=evaluate_fn,
+            validate_fn=_mock_validate_pass, assess_risk_fn=assess_risk_fn,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -772,7 +796,7 @@ class TestStopConditionParseFailure:
             max_steps=20,
             llm_client=llm,
             parse_fn=mock_parse_error,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -797,7 +821,7 @@ class TestStopConditionRepeatedAction:
             max_steps=20,
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
@@ -829,10 +853,126 @@ class TestStopConditionKeyboardInterrupt:
             max_steps=20,
             llm_client=llm,
             parse_fn=mock_parse_success,
-            evaluate_fn=mock_evaluate_low,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
             approval_fn=MockApproval([]),
             tools_module=tools,
         )
 
         assert result["finish_reason"] == "keyboard_interrupt"
         assert "用户手动中断" in result.get("stop_reason", "")
+
+
+class TestRepeatedReadNotDeadLoop:
+    def test_agent_repeated_read_files_not_deadloop(self, tmp_path):
+        llm = MockLLM([
+            json.dumps({"action": "read_file", "path": "a.py"}),
+            json.dumps({"action": "read_file", "path": "b.py"}),
+            json.dumps({"action": "read_file", "path": "c.py"}),
+            json.dumps({"action": "finish", "summary": "done"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "Read multiple files",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "finish_action"
+        assert result["steps"] == 4
+        assert len(tools.calls) == 3
+
+
+class TestParseFailureRecovery:
+    def test_agent_parse_failure_then_recover(self, tmp_path):
+        llm = MockLLM([
+            "invalid",
+            "{bad",
+            json.dumps({"action": "finish", "summary": "recovered"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "Recover from parse errors",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_error,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["steps"] == 3
+        assert result["finish_reason"] == "finish_action"
+
+
+class TestBoundaryExploits:
+    def test_max_steps_no_finish(self, tmp_path):
+        actions = [
+            json.dumps({"action": "read_file", "path": f"{i}.py"})
+            for i in range(20)
+        ]
+        llm = MockLLM(actions)
+        tools = MockTools()
+
+        result = run(
+            "Never finish",
+            str(tmp_path),
+            max_steps=5,
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "max_steps"
+        assert result["steps"] == 5
+
+    def test_empty_task(self, tmp_path):
+        llm = MockLLM([
+            json.dumps({"action": "finish", "summary": "done"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "",
+            str(tmp_path),
+            llm_client=llm,
+            parse_fn=mock_parse_success,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["success"] is True
+        assert result["finish_reason"] == "finish_action"
+
+    def test_three_invalid_responses_then_recover(self, tmp_path):
+        llm = MockLLM([
+            "bad json",
+            "also bad",
+            "still bad",
+            json.dumps({"action": "finish", "summary": "recovered"}),
+        ])
+        tools = MockTools()
+
+        result = run(
+            "Recover after errors",
+            str(tmp_path),
+            max_steps=20,
+            llm_client=llm,
+            parse_fn=mock_parse_error,
+            validate_fn=_mock_validate_pass, assess_risk_fn=_mock_assess_risk_low,
+            approval_fn=MockApproval([]),
+            tools_module=tools,
+        )
+
+        assert result["finish_reason"] == "parse_failure"
+        assert "解析失败" in result.get("stop_reason", "")

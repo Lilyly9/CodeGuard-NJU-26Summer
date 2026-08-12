@@ -4,7 +4,8 @@
     python cli.py setup        # 引导用户输入 API Key 保存到 keyring
     python cli.py status       # 显示是否已配置（不显示明文）
     python cli.py clear        # 从 keyring 删除 key
-    python cli.py run --task "修复 bug" --workspace ./project --mock
+    python cli.py run "任务描述" --workspace ./project --mock
+    python cli.py run --task "任务描述" --workspace ./project --mock
 """
 
 import argparse
@@ -14,7 +15,8 @@ import sys
 from src.agent import run
 from src.llm_client import MockLLM, RealLLM
 from src.parser import parse_llm_output
-from src.guardrail import evaluate
+from src.validation import validate_action
+from src.guardrail import assess_risk
 import src.tools as tools
 
 
@@ -47,6 +49,9 @@ def cmd_clear(_args):
 
 
 def cmd_run(args):
+    if not args.task:
+        print("Error: Task description is required.")
+        sys.exit(1)
     if args.mock:
         llm = MockLLM([])
     else:
@@ -57,7 +62,8 @@ def cmd_run(args):
         args.workspace,
         llm_client=llm,
         parse_fn=parse_llm_output,
-        evaluate_fn=evaluate,
+        validate_fn=validate_action,
+        assess_risk_fn=assess_risk,
         tools_module=tools,
     )
 
@@ -81,7 +87,8 @@ def main():
     parser_clear.set_defaults(func=cmd_clear)
 
     parser_run = subparsers.add_parser("run", help="Run the agent")
-    parser_run.add_argument("--task", required=True, help="Task description for the agent")
+    parser_run.add_argument("task", nargs="?", default=argparse.SUPPRESS, help="Task description for the agent")
+    parser_run.add_argument("--task", dest="task", default=None, help="Task description for the agent (named form)")
     parser_run.add_argument("--workspace", default=".", help="Workspace directory (default: .)")
     parser_run.add_argument("--mock", action="store_true", help="Use MockLLM instead of real API")
     parser_run.set_defaults(func=cmd_run)

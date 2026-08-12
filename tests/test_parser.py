@@ -222,3 +222,30 @@ class TestEdgeCases:
         for inp in weird_inputs:
             result = parse_llm_output(inp)
             assert result.error is not None
+
+
+class TestBoundaryExploits:
+    def test_action_delete_database(self):
+        raw = json.dumps({"action": "delete_database", "path": "/"})
+        result = parse_llm_output(raw)
+        assert result.error is not None
+        assert "Unknown action" in result.error
+
+    def test_path_param_not_string(self):
+        raw = json.dumps({"action": "read_file", "path": 123})
+        result = parse_llm_output(raw)
+        assert result.error is None
+        assert result.action.params["path"] == 123
+
+    def test_content_param_not_string(self):
+        raw = json.dumps({"action": "write_file", "path": "x.py", "content": 999})
+        result = parse_llm_output(raw)
+        assert result.error is None
+        assert result.action.params["content"] == 999
+
+    def test_extra_unknown_fields_ignored(self):
+        raw = json.dumps({"action": "finish", "hack": "malicious", "summary": "done"})
+        result = parse_llm_output(raw)
+        assert result.error is None
+        assert result.action.type == "finish"
+        assert "hack" in result.action.params

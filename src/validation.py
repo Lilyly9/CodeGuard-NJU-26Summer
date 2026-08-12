@@ -73,6 +73,9 @@ def validate_action(parsed: dict, workspace: str, config) -> ValidationResult:
         if ".." in path:
             errors.append("Path traversal detected: '..' in path")
 
+        if ".git" in path.replace("\\", "/").split("/"):
+            errors.append("Cannot access .git directory")
+
         basename = os.path.basename(path)
         if basename in _SENSITIVE_FILES:
             errors.append(f"Cannot access sensitive file: {basename}")

@@ -40,7 +40,10 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
     if any(conn in cmd_normalized for conn in ("&&", "||", "|", ";")):
         return _make(RiskLevel.FORBIDDEN, "Shell connector detected in command", is_forbidden=True)
 
-    if re.search(r"\brm\s+-rf\s+/(?:\s|$)", cmd_normalized):
+    if re.search(r"\$\(|`", cmd_normalized):
+        return _make(RiskLevel.FORBIDDEN, "Shell subcommand injection detected", is_forbidden=True)
+
+    if re.search(r"\brm\s+-rf\s+/(?:\s|$)", cmd_normalized, re.IGNORECASE):
         return _make(RiskLevel.FORBIDDEN, "rm -rf / is forbidden", is_forbidden=True)
 
     if re.search(r"\bshutdown\b", cmd_normalized):
@@ -51,7 +54,12 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
 
     # ── high ───────────────────────────────────────────────────────────────
 
-    if re.search(r"\brm\b", cmd_normalized):
+    if action_type == "write_file":
+        content = (params.get("content") or "")
+        if len(content) > 10000:
+            return _make(RiskLevel.HIGH, "Large file write requires approval", needs_approval=True)
+
+    if re.search(r"\brm\b", cmd_normalized, re.IGNORECASE):
         return _make(RiskLevel.HIGH, "rm command requires approval", needs_approval=True)
 
     if "git commit" in cmd_normalized:
@@ -70,7 +78,7 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
     if action_type == "read_file":
         return _make(RiskLevel.LOW, "Read-only operation")
 
-    if action_type in ("list_files", "list_directory"):
+    if action_type == "list_files":
         return _make(RiskLevel.LOW, "Read-only operation")
 
     if "git status" in cmd_normalized or "git diff" in cmd_normalized:
@@ -79,8 +87,11 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
     return _make(RiskLevel.LOW, "Default low risk")
 
 
+import warnings
+
 def evaluate(action, workspace):
-    """Backward-compatible wrapper. Calls validate_action + assess_risk."""
+    """@deprecated: Use validate_action + assess_risk instead."""
+    warnings.warn("evaluate() is deprecated. Use validate_action() + assess_risk() instead.", DeprecationWarning, stacklevel=2)
     from src.validation import validate_action
     from src.config import Config
 
