@@ -8,7 +8,7 @@ import os
 import subprocess
 from pathlib import Path
 
-_ALLOWED_COMMANDS = {"pytest", "python", "ruff", "git diff", "git status"}
+_ALLOWED_COMMANDS = {"pytest", "python", "ruff", "mypy", "git diff", "git status"}
 _MAX_READ_SIZE = 10000
 _MAX_FILE_SIZE = 100 * 1024
 _BLOCKED_DIRS = {".git", "__pycache__"}
@@ -130,6 +130,9 @@ def write_file(path: str, content: str, workspace: str, config=None) -> dict:
     p = Path(path)
     if p.name in _BLOCKED_FILES:
         return _make_error("Cannot write to .env file")
+
+    if ".git" in p.resolve().parts:
+        return _make_error("Cannot write to .git directory")
 
     old_content = ""
     if p.exists():

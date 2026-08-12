@@ -190,6 +190,17 @@ class TestWriteFile:
         assert result["success"] is False
         assert "env" in result["error"].lower()
 
+    def test_rejects_git_dir_write(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+        (ws / ".git").mkdir()
+
+        result = write_file(
+            str(ws / ".git" / "config"), "[core]", str(ws)
+        )
+        assert result["success"] is False
+        assert "git" in result["error"].lower()
+
 
 class TestRunPytest:
     def test_runs_pytest_and_returns_results(self, tmp_path):
@@ -275,6 +286,15 @@ class TestRunCommand:
         result = run_command("git status", str(ws))
         assert result["success"] is False
         assert "not allowed" not in result["error"].lower()
+
+    def test_mypy_is_allowed(self, tmp_path):
+        ws = tmp_path / _WORKSPACE
+        ws.mkdir()
+
+        result = run_command("mypy --version", str(ws))
+        # mypy is in the whitelist; it should not be rejected as "not allowed"
+        error = result.get("error") or ""
+        assert "not allowed" not in error.lower()
 
 
 class TestEditFile:
