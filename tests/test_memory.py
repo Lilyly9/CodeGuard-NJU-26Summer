@@ -146,3 +146,34 @@ class TestMemoryLastTestResult:
     def test_last_test_result_initially_none(self):
         m = Memory(task="test")
         assert m.last_test_result is None
+
+
+class TestMemorySensitiveFiltering:
+    def test_filters_api_key_in_result(self):
+        m = Memory(task="test")
+        m.add_history(
+            {"action": "run_command", "command": "pytest"},
+            {"success": False, "error": "x", "meta": {"api_key": "sk-secret-123"}},
+        )
+        serialized = json.dumps(m.history, ensure_ascii=False)
+        assert "sk-secret-123" not in serialized
+        assert "***REDACTED***" in serialized
+
+    def test_filters_password_in_result(self):
+        m = Memory(task="test")
+        m.add_history(
+            {"action": "write_file", "path": "x.py"},
+            {"success": True, "data": None, "error": None,
+             "meta": {"password": "hunter2"}},
+        )
+        serialized = json.dumps(m.history, ensure_ascii=False)
+        assert "hunter2" not in serialized
+
+    def test_does_not_filter_normal_fields(self):
+        m = Memory(task="test")
+        m.add_history(
+            {"action": "read_file", "path": "main.py"},
+            {"success": True, "data": "hello", "error": None, "meta": {}},
+        )
+        entry = m.history[0]
+        assert entry["result"]["data"] == "hello"

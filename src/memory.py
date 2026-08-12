@@ -56,10 +56,12 @@ def _serialize_result(result):
     if result is None:
         return None
     if isinstance(result, dict):
-        return {
+        serialized = {
             "success": result.get("success"),
             "data": str(result.get("data")) if result.get("data") is not None else None,
             "error": result.get("error"),
             "meta": {str(k): str(v) for k, v in result.get("meta", {}).items()},
         }
+        from src.audit_log import filter_sensitive
+        return filter_sensitive(serialized)
     return result

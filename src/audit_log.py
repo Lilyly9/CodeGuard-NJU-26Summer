@@ -13,6 +13,24 @@ from pathlib import Path
 _SENSITIVE_PATTERNS = ["api_key", "API_KEY", "OPENAI_API_KEY", "token", "secret", "password"]
 
 
+def filter_sensitive(data: dict) -> dict:
+    """Recursively redact sensitive fields from a dict.
+
+    Module-level so it can be reused by Memory and other components without
+    instantiating an AuditLogger.
+    """
+    result = {}
+    for key, value in data.items():
+        key_lower = str(key).lower()
+        if any(pattern.lower() in key_lower for pattern in _SENSITIVE_PATTERNS):
+            result[key] = "***REDACTED***"
+        elif isinstance(value, dict):
+            result[key] = filter_sensitive(value)
+        else:
+            result[key] = value
+    return result
+
+
 class AuditLogger:
     def __init__(self, log_path: Path):
         self._log_path = Path(log_path)
@@ -45,13 +63,4 @@ class AuditLogger:
         return serialized
 
     def _filter_sensitive(self, data: dict) -> dict:
-        result = {}
-        for key, value in data.items():
-            key_lower = key.lower()
-            if any(pattern.lower() in key_lower for pattern in _SENSITIVE_PATTERNS):
-                result[key] = "***REDACTED***"
-            elif isinstance(value, dict):
-                result[key] = self._filter_sensitive(value)
-            else:
-                result[key] = value
-        return result
+        return filter_sensitive(data)
