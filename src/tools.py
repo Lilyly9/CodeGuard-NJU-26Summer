@@ -111,9 +111,13 @@ def read_file(path: str, workspace: str) -> dict:
 
 
 def write_file(path: str, content: str, workspace: str, config=None) -> dict:
+    # Ensure workspace exists on disk before any path operations
+    ws_abs = os.path.abspath(workspace)
+    os.makedirs(ws_abs, exist_ok=True)
+
     if not os.path.isabs(path):
-        path = os.path.join(workspace, path)
-    if not _is_inside_workspace(path, workspace):
+        path = os.path.join(ws_abs, path)
+    if not _is_inside_workspace(path, ws_abs):
         return _make_error("Path outside workspace")
 
     max_size = _MAX_FILE_SIZE
@@ -149,6 +153,9 @@ def write_file(path: str, content: str, workspace: str, config=None) -> dict:
 
 
 def run_pytest(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_TIMEOUT) -> dict:
+    # Ensure workspace exists and is absolute so pytest always runs in the right directory
+    ws = os.path.abspath(workspace)
+    os.makedirs(ws, exist_ok=True)
     try:
         proc = subprocess.run(
             command.split(),
@@ -156,7 +163,7 @@ def run_pytest(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=workspace,
+            cwd=ws,
             env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")},
         )
         stdout = proc.stdout or ""
@@ -190,6 +197,10 @@ def run_command(command: str, workspace: str) -> dict:
         if ch in command:
             return _make_error(f"Command not allowed: forbidden character '{ch}'")
 
+    # Ensure workspace exists and is absolute so commands always run in the right directory
+    ws = os.path.abspath(workspace)
+    os.makedirs(ws, exist_ok=True)
+
     try:
         proc = subprocess.run(
             command.split(),
@@ -197,7 +208,7 @@ def run_command(command: str, workspace: str) -> dict:
             capture_output=True,
             text=True,
             timeout=_DEFAULT_TIMEOUT,
-            cwd=workspace,
+            cwd=ws,
             env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")},
         )
         stdout = proc.stdout or ""
