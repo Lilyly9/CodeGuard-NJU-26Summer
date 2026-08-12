@@ -31,7 +31,8 @@ class Agent:
                  assess_risk_fn=None,
                  approval_fn=None,
                  tools_module=None,
-                 config=None):
+                 config=None,
+                 progress_callback=None):
         if llm_client is None:
             from src.llm_client import RealLLM
             llm_client = RealLLM()
@@ -63,6 +64,16 @@ class Agent:
             from src.config import Config
             config = Config()
         self.config = config
+
+        self.progress_callback = progress_callback
+
+    def _notify(self, event_type: str, data: dict):
+        """Notify progress callback if set."""
+        if self.progress_callback:
+            try:
+                self.progress_callback(event_type, data)
+            except Exception:
+                pass  # never let callback failures crash the agent
 
     def run(self, task: str, workspace: str, max_steps: int = 10) -> dict:
         ws_path = Path(workspace)
@@ -114,6 +125,8 @@ class Agent:
                 consecutive_failures = 0
                 action_dict = _action_to_dict(parsed)
 
+                self._notify("step", {"step": step, "action": action_dict})
+
                 if action_dict.get("action") == "finish":
                     logger.log({
                         "step": step,
@@ -130,7 +143,8 @@ class Agent:
                 if current_signature == last_action_signature:
                     action_repeat_count += 1
                     if action_repeat_count >= 3:
-                        stop_reason = "连续 3 次相同无效动作"
+                        if step < max_steps:
+                            stop_reason = "连续 3 次相同无效动作"
                         break
                 else:
                     last_action_signature = current_signature
@@ -172,6 +186,7 @@ class Agent:
                         "final_decision": "BLOCKED",
                     })
                     memory.add_history(action_dict, {"success": False, "error": "Action forbidden", "meta": {"blocked": True}})
+                    self._notify("blocked", {"step": step, "action": action_dict, "risk_level": risk.level.value, "reason": "forbidden"})
                     continue
 
                 if risk.level == RiskLevel.HIGH:
@@ -189,6 +204,7 @@ class Agent:
                             "final_decision": "REJECTED",
                         })
                         memory.add_history(action_dict, {"success": False, "error": "User rejected", "meta": {"blocked": True}})
+                        self._notify("blocked", {"step": step, "action": action_dict, "risk_level": risk.level.value, "reason": "rejected"})
                         continue
 
                 tool_result = execute_tool(action_dict.get("action"), action_dict, workspace, self.config, self.tools_module)
@@ -204,6 +220,7 @@ class Agent:
                     "final_decision": "EXECUTED",
                 })
                 memory.add_history(action_dict, tool_result)
+                self._notify("executed", {"step": step, "action": action_dict, "result": tool_result, "risk_level": risk.level.value})
                 if action_dict.get("action") == "run_pytest":
                     memory.last_test_result = tool_result
                     if self.config.auto_finish_on_test_pass and tool_result.get("success"):
@@ -212,6 +229,7 @@ class Agent:
 
         except Exception as e:
             stop_reason = f"Unrecoverable error: {e}"
+            self._notify("error", {"step": step, "error": str(e)})
 
         if stop_reason:
             finish_reason = "parse_failure" if "解析失败" in stop_reason else \
@@ -222,13 +240,15 @@ class Agent:
         else:
             finish_reason = "finish_action" if finished else "max_steps"
 
-        return {
+        result = {
             "success": True,
             "steps": step,
             "finish_reason": finish_reason,
             "stop_reason": stop_reason,
             "audit_log": logger.get_entries(),
         }
+        self._notify("completed", result)
+        return result
 
 
 def run(task, workspace, max_steps=10, *,

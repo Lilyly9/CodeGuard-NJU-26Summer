@@ -10,6 +10,8 @@
 
 import argparse
 import getpass
+import json
+import os
 import sys
 
 from src.agent import run
@@ -19,17 +21,62 @@ from src.validation import validate_action
 from src.guardrail import assess_risk
 import src.tools as tools
 
+# Pre-set demo sequence for --mock mode: simulates a complete agent run
+_MOCK_DEMO_RESPONSES = [
+    json.dumps({"action": "list_files", "path": "."}),
+    json.dumps({"action": "read_file", "path": "README.md"}),
+    json.dumps({"action": "write_file", "path": "demo_output.txt",
+                "content": "CodeGuard demo completed successfully.\n"}),
+    json.dumps({"action": "finish", "summary": "Demo task completed"}),
+]
+
+
+def _check_api_key() -> bool:
+    """Check whether an API Key is available via env var or keyring.
+
+    Returns True if a key is found, False otherwise.
+    Prints a friendly guide when no key is configured.
+    """
+    # 1) environment variable takes priority
+    env_key = os.getenv("OPENAI_API_KEY", "")
+    if env_key:
+        print("[OK] Using API Key from environment variable")
+        return True
+
+    # 2) fall back to system keyring
+    from src.keyring_manager import KeyringManager
+    km = KeyringManager()
+    if km.is_configured():
+        return True
+
+    # 3) nothing configured — print friendly guide
+    print()
+    print("[!] No API Key detected.")
+    print("    First time? Run: python cli.py setup")
+    print("    This securely stores your key in the system credential manager.")
+    print("[X] Task cancelled.")
+    return False
+
 
 def cmd_setup(_args):
     from src.keyring_manager import KeyringManager
     km = KeyringManager()
+
+    # warn if a key is already stored
+    if km.is_configured():
+        print("[!] An API Key already exists in the system credential manager.")
+        confirm = input("    Overwrite? (y/n): ").strip().lower()
+        if confirm != "y":
+            print("[X] Cancelled, existing key unchanged.")
+            return
+
     print("Enter your OpenAI API Key (input will be hidden):")
-    api_key = getpass("API Key: ").strip()
+    api_key = getpass.getpass("API Key: ").strip()
     if not api_key:
         print("Error: API Key cannot be empty.")
         sys.exit(1)
     km.set_key(api_key)
-    print("API Key saved to system keyring.")
+    print("[OK] API Key saved to system credential manager.")
 
 
 def cmd_status(_args):
@@ -53,8 +100,11 @@ def cmd_run(args):
         print("Error: Task description is required.")
         sys.exit(1)
     if args.mock:
-        llm = MockLLM([])
+        print("[*] Running in mock mode (pre-set demo sequence, no API key needed)")
+        llm = MockLLM(_MOCK_DEMO_RESPONSES)
     else:
+        if not _check_api_key():
+            sys.exit(1)
         llm = RealLLM()
 
     result = run(

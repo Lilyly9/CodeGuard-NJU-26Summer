@@ -6,6 +6,7 @@ dependencies = [
     "keyring",
     "tomli",
     "openai",
+    "flask",
 ]
 
 [project.optional-dependencies]

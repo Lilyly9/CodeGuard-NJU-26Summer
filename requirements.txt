@@ -2,4 +2,5 @@ keyring
 tomli
 openai
 pytest
+pytest-cov>=4.0.0
 flask
