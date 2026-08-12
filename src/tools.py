@@ -152,6 +152,7 @@ def run_pytest(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_
     try:
         proc = subprocess.run(
             command.split(),
+            shell=False,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -192,6 +193,7 @@ def run_command(command: str, workspace: str) -> dict:
     try:
         proc = subprocess.run(
             command.split(),
+            shell=False,
             capture_output=True,
             text=True,
             timeout=_DEFAULT_TIMEOUT,

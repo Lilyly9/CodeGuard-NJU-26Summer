@@ -46,8 +46,8 @@
 
 ## 6. CI 配置 — 2026-08-12
 
-- **触发**：确保 `.github/workflows/ci.yml` 中的 `unit-test` job 运行通过，覆盖 Python 3.10 / 3.11 两个版本。
-- **干预**：验证 `requirements.txt` 包含所有依赖（keyring / tomli / openai / pytest / pytest-cov）；确认 `pyproject.toml` 中 `pythonpath = ["."]` 使 `pytest` 能正确发现 `src/` 模块。
+- **触发**：创建 `.github/workflows/ci.yml`，配置 `unit-test` job（Python 3.10 / 3.11 双版本矩阵），通过 `push` 和 `pull_request` 触发。
+- **干预**：验证 `requirements.txt` 包含所有依赖（keyring / tomli / openai / pytest / pytest-cov / flask）；确认 `pyproject.toml` 中 `pythonpath = ["."]` 使 `pytest` 能正确发现 `src/` 模块。
 - **教训**：CI 配置应在项目早期（而非末期）完成，以便每次提交自动验证；`pytest-cov` 覆盖率报告能帮助发现未被测试覆盖的代码路径。
 
 ---
@@ -56,11 +56,11 @@
 
 | 指标 | 数值 |
 |------|------|
-| 总测试数 | 315 |
-| 通过 | 314 |
+| 总测试数 | 385 |
+| 通过 | 385 |
 | 跳过 | 1 |
-| 源文件 | 14 |
-| 测试文件 | 17 |
+| 源文件 | 16 |
+| 测试文件 | 19 |
 | 关键干预次数 | 7 |
 | 开发周期 | 2026-08-07 至 2026-08-12（6 天） |
 

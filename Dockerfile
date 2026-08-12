@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 COPY webui/ webui/
+COPY cli.py demo.py config.toml ./
 
 EXPOSE 5000
 
