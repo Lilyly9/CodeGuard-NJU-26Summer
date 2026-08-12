@@ -138,6 +138,19 @@ def write_file(path: str, content: str, workspace: str, config=None) -> dict:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
+    # Invalidate bytecode cache (.pyc) so the next pytest/import always
+    # reads the updated source — critical on Linux CI where filesystem
+    # timestamp granularity can be too coarse to trigger recompilation.
+    if p.suffix == ".py":
+        pycache_dir = p.parent / "__pycache__"
+        if pycache_dir.is_dir():
+            stem = p.stem
+            for pyc in list(pycache_dir.glob(f"{stem}*.pyc")):
+                try:
+                    pyc.unlink()
+                except OSError:
+                    pass
+
     diff_lines = list(
         difflib.unified_diff(
             old_content.splitlines(keepends=True),

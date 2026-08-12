@@ -127,6 +127,7 @@ def demo_3_feedback():
         print("[演示3] 第一次测试失败，收到错误反馈；第二次修正后测试通过。反馈闭环工作正常！")
     else:
         print("[演示3] 测试失败：反馈闭环未按预期工作")
+        print(f"  DEBUG: len(run_entries)={len(run_entries)}, first_exit={run_entries[0].get('tool_result',{}).get('meta',{}).get('exit_code','?') if run_entries else 'N/A'}, second_exit={run_entries[1].get('tool_result',{}).get('meta',{}).get('exit_code','?') if len(run_entries)>1 else 'N/A'}, finished={finished}")
     print()
 
 

@@ -50,37 +50,47 @@ def test_feedback_loop_self_correct(tmp_path):
     )
 
     # ── mock LLM: first pytest (fails) → write correction → second pytest (passes) → finish
+    # Use --cache-clear on both pytest runs so stale .pytest_cache never interferes.
     mock_llm = mock.Mock()
     mock_llm.get_response.side_effect = [
-        json.dumps({"action": "run_command", "command": "pytest test_calc.py -v"}),
+        json.dumps({"action": "run_command", "command": "pytest test_calc.py -v --cache-clear"}),
         json.dumps({"action": "write_file", "path": "test_calc.py", "content": corrected_content}),
-        json.dumps({"action": "run_command", "command": "pytest test_calc.py -v"}),
+        json.dumps({"action": "run_command", "command": "pytest test_calc.py -v --cache-clear"}),
         json.dumps({"action": "finish", "summary": "tests pass"}),
     ]
 
     agent = Agent(llm_client=mock_llm)
     result = agent.run(task="修复 test_calc.py 的断言", workspace=workspace, max_steps=10)
 
-    # ── assertions ─────────────────────────────────────────────────────────
+    # ── debug: print detailed diagnostics for CI ────────────────────────────
+    print(f"\n[DEBUG] workspace = {workspace}")
+    print(f"[DEBUG] workspace exists = {os.path.isdir(workspace)}")
+    print(f"[DEBUG] workspace contents = {sorted(os.listdir(workspace))}")
+    if os.path.isdir(os.path.join(workspace, "__pycache__")):
+        print(f"[DEBUG] __pycache__ contents = {os.listdir(os.path.join(workspace, '__pycache__'))}")
+
     run_command_entries = [
         entry for entry in result["audit_log"]
         if entry.get("action", {}).get("action") == "run_command"
     ]
 
-    # debug: print details for CI diagnosis
-    print(f"\n[DEBUG] workspace = {workspace}")
-    print(f"[DEBUG] workspace exists = {os.path.isdir(workspace)}")
-    print(f"[DEBUG] workspace contents = {os.listdir(workspace)}")
     for i, entry in enumerate(run_command_entries):
         tr = entry.get("tool_result", {}) or {}
         meta = tr.get("meta", {}) or {}
-        print(f"[DEBUG] run_command[{i}]: cmd={entry.get('action',{}).get('command','?')}, "
-              f"exit_code={meta.get('exit_code','?')}, "
-              f"cwd_in_meta={meta.get('cwd','not tracked')}")
+        print(f"[DEBUG] run_command[{i}]: "
+              f"exit_code={meta.get('exit_code', '?')}, "
+              f"stdout={repr(meta.get('stdout', '')[:200])}, "
+              f"stderr={repr(meta.get('stderr', '')[:200])}")
 
+    # print the actual test file content on disk after the agent run
+    actual_content = test_file.read_text(encoding="utf-8")
+    print(f"[DEBUG] test_calc.py after agent run:\n{actual_content}")
+    print(f"[DEBUG] test_calc.py content matches corrected: {actual_content == corrected_content}")
+
+    # ── assertions ─────────────────────────────────────────────────────────
     assert len(run_command_entries) == 2, (
         f"Expected 2 run_command executions, got {len(run_command_entries)}. "
-        f"Workspace contents: {os.listdir(workspace)}"
+        f"Workspace: {workspace}, files: {os.listdir(workspace)}"
     )
 
     first_exit = int(run_command_entries[0].get("tool_result", {}).get("meta", {}).get("exit_code", 0))
