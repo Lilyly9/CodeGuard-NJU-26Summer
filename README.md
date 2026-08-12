@@ -189,6 +189,12 @@ allowed_commands = ["pytest", "python", "ruff", "git diff", "git status"]
 protected_files = [".env", "*.pem", "*.key", ".git"]
 ```
 
+## 已知限制
+
+- **TOCTOU 符号链接攻击未完全防护**：路径检查使用 `os.path.realpath()` + `os.path.commonpath()`，但符号链接在检查与执行之间可能被替换（Time-of-check to time-of-use）。已在 SPEC §16 记录为 P2 计划项，第一版仅记录风险。
+- **keyring 在无图形界面的 Linux 服务器上可能不可用**：`keyring` 依赖系统凭据管理器（Windows Credential Manager / macOS Keychain / Linux Secret Service）。在 headless Linux 环境（如某些 CI/容器）中，Secret Service 后端可能需要 `dbus` 支持；此时请改用环境变量 `OPENAI_API_KEY` 作为后备。
+- **WebUI 仅本地部署，未提供公网 URL**：`webui/app.py` 默认运行在 `localhost:5000`，需自行部署到 Render/Vercel 等平台以获得公网访问。
+
 ## 许可证
 
 课程作业，仅用于教学演示。
