@@ -88,6 +88,7 @@ class Agent:
         logger = AuditLogger(Path(workspace) / ".codeguard" / "audit.jsonl")
         finished = False
         consecutive_failures = 0
+        consecutive_validation_failures = 0
         last_action_signature = None
         action_repeat_count = 0
         stop_reason = ""
@@ -120,6 +121,7 @@ class Agent:
                     memory.add_history({}, {"success": False, "error": parsed.error})
                     last_action_signature = None
                     action_repeat_count = 0
+                    consecutive_validation_failures = 0
                     continue
 
                 consecutive_failures = 0
@@ -152,8 +154,8 @@ class Agent:
 
                 validated = self.validate_fn(action_dict, workspace, self.config)
                 if not validated.valid:
-                    consecutive_failures += 1
-                    if consecutive_failures >= 3:
+                    consecutive_validation_failures += 1
+                    if consecutive_validation_failures >= 3:
                         stop_reason = "连续 3 次验证失败"
                         step -= 1
                         break
@@ -170,7 +172,7 @@ class Agent:
                     })
                     memory.add_history(action_dict, {"success": False, "error": validated.reason, "meta": {"validation_error": True}})
                     continue
-                consecutive_failures = 0
+                consecutive_validation_failures = 0
                 risk = self.assess_risk_fn(validated, self.config)
 
                 if risk.level == RiskLevel.FORBIDDEN:
@@ -240,6 +242,7 @@ class Agent:
 
         if stop_reason:
             finish_reason = "parse_failure" if "解析失败" in stop_reason else \
+                            "validation_failure" if "验证失败" in stop_reason else \
                             "repeated_action" if "相同无效动作" in stop_reason else \
                             "keyboard_interrupt" if "用户手动中断" in stop_reason else \
                             "all_tests_passed" if stop_reason == "all_tests_passed" else \

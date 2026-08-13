@@ -28,7 +28,7 @@ _MOCK_DEMO_RESPONSES = [
     json.dumps({"action": "write_file", "path": "demo_output.txt",
                 "content": "CodeGuard demo completed successfully.\n"}),
     json.dumps({"action": "finish", "summary": "Demo task completed"}),
-]
+]# 假回复
 
 
 def _check_api_key() -> bool:
@@ -118,6 +118,10 @@ def cmd_run(args):
     )
 
     print(f"Done. Steps: {result['steps']}, Finish reason: {result['finish_reason']}")
+    if result.get("stop_reason"):
+        print(f"Stop reason: {result['stop_reason']}")
+    if result["finish_reason"] == "error":
+        sys.exit(1)
 
 
 def main():
@@ -127,6 +131,7 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    # 子命令通过set_defaults绑定对应的处理函数
     parser_setup = subparsers.add_parser("setup", help="Save API Key to system keyring")
     parser_setup.set_defaults(func=cmd_setup)
 

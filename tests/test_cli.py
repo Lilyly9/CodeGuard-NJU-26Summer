@@ -2,11 +2,12 @@
 
 import sys
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from cli import main
+from cli import cmd_run, main
 
 
 class TestCliHelp:
@@ -44,3 +45,21 @@ class TestCliHelpFlag:
         with patch.object(sys, "argv", ["codeguard", "run", "--help"]):
             with pytest.raises(SystemExit):
                 main()
+
+
+class TestCliErrorReporting:
+    def test_run_error_surfaces_stop_reason_and_exits_nonzero(self, capsys):
+        with patch("cli._check_api_key", return_value=True), \
+             patch("cli.RealLLM", return_value=object()), \
+             patch("cli.run", return_value={
+                 "steps": 1,
+                 "finish_reason": "error",
+                 "stop_reason": "Unrecoverable error: LLM request failed after 3 attempts",
+             }):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_run(SimpleNamespace(task="修复测试", workspace=".", mock=False))
+
+        out = capsys.readouterr().out
+        assert "Stop reason" in out, f"error detail should be printed, got: {out!r}"
+        assert "LLM request failed after 3 attempts" in out
+        assert exc_info.value.code == 1, "failed run should exit non-zero"

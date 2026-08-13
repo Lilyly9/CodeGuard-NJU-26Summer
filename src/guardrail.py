@@ -43,7 +43,7 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
     if re.search(r"\$\(|`", cmd_normalized):
         return _make(RiskLevel.FORBIDDEN, "Shell subcommand injection detected", is_forbidden=True)
 
-    if re.search(r"\brm\s+-rf\s+/(?:\s|$)", cmd_normalized, re.IGNORECASE):
+    if re.search(r"\brm\s+-rf\s+/(?:[*.]|\s|$)", cmd_normalized, re.IGNORECASE):
         return _make(RiskLevel.FORBIDDEN, "rm -rf / is forbidden", is_forbidden=True)
 
     if re.search(r"\bshutdown\b", cmd_normalized):
@@ -67,7 +67,7 @@ def assess_risk(validated: ValidationResult, config) -> RiskDecision:
 
     # ── medium ─────────────────────────────────────────────────────────────
 
-    if "pytest" in cmd_normalized:
+    if action_type == "run_pytest" or "pytest" in cmd_normalized:
         return _make(RiskLevel.MEDIUM, "Test execution")
 
     if action_type in ("write_file", "edit_file") and path.endswith(".py"):

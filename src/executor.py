@@ -14,7 +14,7 @@ def execute_tool(action: str, params: dict, workspace: str, config, tools_module
     elif action == "read_file":
         return tools_module.read_file(params["path"], workspace)
     elif action == "write_file":
-        return tools_module.write_file(params["path"], params["content"], workspace)
+        return tools_module.write_file(params["path"], params["content"], workspace, config)
     elif action == "edit_file":
         return tools_module.edit_file(
             params["path"],

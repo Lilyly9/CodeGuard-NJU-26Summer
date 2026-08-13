@@ -21,7 +21,7 @@ class MockTools:
         self.calls.append(("read_file", path))
         return {"success": True, "data": "content", "error": None, "meta": {}}
 
-    def write_file(self, path, content, workspace):
+    def write_file(self, path, content, workspace, config=None):
         self.calls.append(("write_file", path))
         return {"success": True, "data": None, "error": None, "meta": {"diff": "+x"}}
 

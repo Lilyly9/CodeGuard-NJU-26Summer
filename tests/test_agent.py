@@ -111,7 +111,7 @@ class MockTools:
         self.calls.append(("read_file", path))
         return {"success": True, "data": "def add(a,b): return a-b", "error": None, "meta": {}}
 
-    def write_file(self, path, content, workspace):
+    def write_file(self, path, content, workspace, config=None):
         self.calls.append(("write_file", path))
         return {"success": True, "data": None, "error": None, "meta": {"diff": "+def add(a,b): return a+b"}}
 
@@ -499,7 +499,7 @@ class TestToolExecutionFeedback:
             def list_files(self, path, workspace):
                 return {"success": True, "data": [], "error": None, "meta": {}}
 
-            def write_file(self, path, content, workspace):
+            def write_file(self, path, content, workspace, config=None):
                 return {"success": True, "data": None, "error": None, "meta": {}}
 
             def run_pytest(self, workspace, command="pytest", timeout=30):
@@ -795,7 +795,7 @@ class TestAutoFinishOnTestPass:
                 self.calls.append(("read_file", path))
                 return {"success": True, "data": "code", "error": None, "meta": {}}
 
-            def write_file(self, path, content, workspace):
+            def write_file(self, path, content, workspace, config=None):
                 self.calls.append(("write_file", path))
                 return {"success": True, "data": None, "error": None, "meta": {}}
 

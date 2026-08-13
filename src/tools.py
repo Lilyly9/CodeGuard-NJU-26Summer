@@ -203,7 +203,7 @@ def run_pytest(workspace: str, command: str = "pytest", timeout: int = _DEFAULT_
 def run_command(command: str, workspace: str) -> dict:
     cmd_name = command.split()[0]
     allowed = any(
-        command.startswith(allowed_cmd)
+        command == allowed_cmd or command.startswith(allowed_cmd + " ")
         for allowed_cmd in _ALLOWED_COMMANDS
     )
     if not allowed:
