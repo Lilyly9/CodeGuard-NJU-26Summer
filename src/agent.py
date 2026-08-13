@@ -1,4 +1,4 @@
-"""Agent 主循环 — 手写 while 循环，绝对禁止使用 LangChain。
+"""Agent 主循环 — 手写 while 循环。
 
 Agent 类通过 __init__ 注入依赖（llm_client / parse_fn / 等），
 run(task, workspace) 驱动完整的"感知-决策-执行-反馈"闭环。
