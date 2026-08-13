@@ -226,6 +226,7 @@ __marimo__/
 
 # CodeGuard — memory persistence
 codeguard_memory.json
+memory.json
 
 # CodeGuard — audit logs & memory directory
 .codeguard/
